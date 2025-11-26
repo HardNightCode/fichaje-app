@@ -1,6 +1,10 @@
 from datetime import datetime, date, timedelta
 from functools import wraps
-from geo_utils import is_within_radius
+from pathlib import Path
+import os
+import logging
+from logging.handlers import RotatingFileHandler
+
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import (
@@ -11,40 +15,58 @@ from flask_login import (
     logout_user,
     current_user,
 )
+from werkzeug.security import generate_password_hash, check_password_hash
+
+from geo_utils import is_within_radius
 from services_fichaje import (
     validar_secuencia_fichaje,
     calcular_horas_trabajadas,
     formatear_timedelta,
 )
-from werkzeug.security import generate_password_hash, check_password_hash
-import os
-import logging
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
+
+# ======================================================
+# Configuración básica de Flask
+# ======================================================
 
 app = Flask(__name__)
 
-# === Configuración básica ===
-app.config["SECRET_KEY"] = "cambia-esta-clave-por-una-mas-segura"
+# SECRET_KEY configurable por entorno (para cada instancia).
+app.config["SECRET_KEY"] = os.getenv(
+    "SECRET_KEY",
+    "cambia-esta-clave-por-una-mas-segura",
+)
 
-# 1) Ruta por defecto: instance/fichaje.db (lo que ya estás usando en la práctica)
+# === Configuración de base de datos ===
+# 1) Ruta por defecto: instance/fichaje.db (sqlite local)
 BASE_DIR = Path(__file__).resolve().parent
 instance_dir = BASE_DIR / "instance"
-instance_dir.mkdir(exist_ok=True)  # por si acaso, la crea si no existe
+instance_dir.mkdir(exist_ok=True)
 default_sqlite_path = instance_dir / "fichaje.db"
 default_sqlite_uri = f"sqlite:///{default_sqlite_path}"
 
-# 2) Si hay DATABASE_URL en el entorno, la usamos. Si no, usamos instance/fichaje.db
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", default_sqlite_uri)
+# 2) Si hay DATABASE_URL en el entorno (caso instancias con PostgreSQL), la usamos.
+#    Esto es lo que el panel escribe en el .env de cada /home/<instancia>/app
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL",
+    default_sqlite_uri,
+)
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 
-# === Flask-Login ===
+# ======================================================
+# Flask-Login
+# ======================================================
+
 login_manager = LoginManager()
-login_manager.login_view = "login"  # ruta a la vista de login
+login_manager.login_view = "login"
 login_manager.init_app(app)
+
+
+# ======================================================
+# Logging a fichero en producción
+# ======================================================
 
 if not app.debug:
     log_dir = os.path.join(app.root_path, "logs")
@@ -60,8 +82,14 @@ if not app.debug:
     app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
 
-# === Modelos ===
+
+# ======================================================
+# Modelos
+# ======================================================
+
 class User(UserMixin, db.Model):
+    __tablename__ = "user"
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
@@ -76,30 +104,41 @@ class User(UserMixin, db.Model):
     def check_password(self, password: str) -> bool:
         return check_password_hash(self.password_hash, password)
 
+
 class Location(db.Model):
+    __tablename__ = "location"
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
-    radius_meters = db.Column(db.Float, nullable=False, default=100.0)  # radio permitido
+    radius_meters = db.Column(db.Float, nullable=False, default=100.0)
+
 
 class Registro(db.Model):
+    __tablename__ = "registro"
+
     id = db.Column(db.Integer, primary_key=True)
     usuario_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     accion = db.Column(db.String(20), nullable=False)  # 'entrada' o 'salida'
     momento = db.Column(db.DateTime, default=datetime.utcnow)
 
-    # Nueva info: coordenadas en el momento del fichaje
+    # Coordenadas en el momento del fichaje
     latitude = db.Column(db.Float, nullable=True)
     longitude = db.Column(db.Float, nullable=True)
 
     usuario = db.relationship("User", backref=db.backref("registros", lazy=True))
 
 
-# === Cargar usuario para Flask-Login ===
+# ======================================================
+# Carga de usuario para Flask-Login
+# ======================================================
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+
 def admin_required(view_func):
     @wraps(view_func)
     @login_required
@@ -108,10 +147,14 @@ def admin_required(view_func):
             flash("No tienes permisos para acceder a esta sección.", "error")
             return redirect(url_for("index"))
         return view_func(*args, **kwargs)
+
     return wrapped_view
 
 
-# === Crear la BD si no existe ===
+# ======================================================
+# Inicialización de la BD
+# ======================================================
+
 def crear_tablas():
     db.create_all()
     # Si no hay ningún usuario, creamos uno admin de ejemplo
@@ -121,12 +164,20 @@ def crear_tablas():
         db.session.add(admin)
         db.session.commit()
 
+
 def init_app():
-    # Se ejecuta al arrancar la aplicación (con gunicorn o en desarrollo)
+    """
+    Se ejecuta al importar el módulo (gunicorn, etc.).
+    Crea tablas y usuario admin si la BD está vacía.
+    """
     with app.app_context():
         crear_tablas()
 
-# === Rutas ===
+
+# ======================================================
+# Rutas
+# ======================================================
+
 @app.route("/")
 @login_required
 def index():
@@ -140,7 +191,7 @@ def index():
             .all()
         )
 
-    # --- NUEVO: resumen de horas para el usuario actual ---
+    # Resumen de horas para el usuario actual
     registros_usuario = (
         Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.asc())
@@ -154,9 +205,9 @@ def index():
         }
         for dia, td in sorted(horas_por_dia.items(), key=lambda x: x[0], reverse=True)
     ]
-    # ------------------------------------------------------
 
     return render_template("index.html", registros=registros, resumen_horas=resumen_horas)
+
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
 @admin_required
@@ -198,6 +249,7 @@ def admin_ubicaciones():
     ubicaciones = Location.query.order_by(Location.name).all()
     return render_template("admin_ubicaciones.html", ubicaciones=ubicaciones)
 
+
 @app.route("/admin/ubicaciones/<int:loc_id>/editar", methods=["GET", "POST"])
 @admin_required
 def editar_ubicacion(loc_id):
@@ -232,6 +284,7 @@ def editar_ubicacion(loc_id):
 
     return render_template("admin_ubicacion_editar.html", loc=loc)
 
+
 @app.route("/admin/ubicaciones/<int:loc_id>/eliminar", methods=["POST"])
 @admin_required
 def eliminar_ubicacion(loc_id):
@@ -240,7 +293,10 @@ def eliminar_ubicacion(loc_id):
     # Comprobar si hay usuarios usando esta ubicación
     usuarios_con_loc = User.query.filter_by(location_id=loc.id).first()
     if usuarios_con_loc:
-        flash("No se puede eliminar la ubicación porque está asignada a uno o más usuarios.", "error")
+        flash(
+            "No se puede eliminar la ubicación porque está asignada a uno o más usuarios.",
+            "error",
+        )
         return redirect(url_for("admin_ubicaciones"))
 
     db.session.delete(loc)
@@ -260,25 +316,33 @@ def admin_usuarios():
             field_name = f"location_{user.id}"
             value = request.form.get(field_name, "none")
 
-            if value == "none" or value == "":
+            if value in ("none", ""):
                 user.location_id = None
             else:
                 try:
                     user.location_id = int(value)
                 except ValueError:
-                    continue  # ignoramos valores raros
+                    continue
 
         db.session.commit()
         flash("Ubicaciones de usuarios actualizadas.", "success")
         return redirect(url_for("admin_usuarios"))
 
-    return render_template("admin_usuarios.html", usuarios=usuarios, ubicaciones=ubicaciones)
+    return render_template(
+        "admin_usuarios.html",
+        usuarios=usuarios,
+        ubicaciones=ubicaciones,
+    )
+
 
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():
     if current_user.location is None:
-        flash("No tienes una ubicación asignada. Contacta con el administrador.", "error")
+        flash(
+            "No tienes una ubicación asignada. Contacta con el administrador.",
+            "error",
+        )
         return redirect(url_for("index"))
 
     accion = request.form.get("accion")
@@ -286,10 +350,9 @@ def fichar():
         flash("Acción no válida", "error")
         return redirect(url_for("index"))
 
-    # --- NUEVO: validar secuencia entrada/salida ---
+    # Validar secuencia entrada/salida
     ultimo_registro = (
-        Registro.query
-        .filter_by(usuario_id=current_user.id)
+        Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.desc())
         .first()
     )
@@ -297,13 +360,15 @@ def fichar():
     if not es_valido:
         flash(msg_error, "error")
         return redirect(url_for("index"))
-    # ----------------------------------------------
 
     lat_str = request.form.get("lat")
     lon_str = request.form.get("lon")
 
     if not lat_str or not lon_str:
-        flash("No se recibió la ubicación del dispositivo. Comprueba los permisos de geolocalización.", "error")
+        flash(
+            "No se recibió la ubicación del dispositivo. Comprueba los permisos de geolocalización.",
+            "error",
+        )
         return redirect(url_for("index"))
 
     try:
@@ -314,8 +379,17 @@ def fichar():
         return redirect(url_for("index"))
 
     loc = current_user.location
-    if not is_within_radius(lat_user, lon_user, loc.latitude, loc.longitude, loc.radius_meters):
-        flash("No estás dentro de tu ubicación autorizada. No se registra el fichaje.", "error")
+    if not is_within_radius(
+        lat_user,
+        lon_user,
+        loc.latitude,
+        loc.longitude,
+        loc.radius_meters,
+    ):
+        flash(
+            "No estás dentro de tu ubicación autorizada. No se registra el fichaje.",
+            "error",
+        )
         return redirect(url_for("index"))
 
     registro = Registro(
@@ -332,14 +406,17 @@ def fichar():
     return redirect(url_for("index"))
 
 
-# === Registro de usuarios ===
+# ======================================================
+# Gestión de usuarios
+# ======================================================
+
 @app.route("/register", methods=["GET", "POST"])
 @admin_required
 def register():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        role = request.form.get("role", "empleado")  # por defecto empleado
+        role = request.form.get("role", "empleado")
 
         if not username or not password:
             flash("Usuario y contraseña son obligatorios", "error")
@@ -359,13 +436,12 @@ def register():
 
     return render_template("register.html")
 
+
 @app.route("/admin/registros", methods=["GET", "POST"])
 @admin_required
 def admin_registros():
-    # Lista de usuarios para el desplegable
     usuarios = User.query.order_by(User.username).all()
 
-    # Valores por defecto del filtro
     registros = []
     usuario_seleccionado = "all"
     fecha_desde = ""
@@ -378,7 +454,6 @@ def admin_registros():
 
         query = Registro.query.join(User).order_by(Registro.momento.desc())
 
-        # Filtrar por usuario
         if usuario_seleccionado != "all":
             try:
                 uid = int(usuario_seleccionado)
@@ -386,7 +461,6 @@ def admin_registros():
             except ValueError:
                 flash("Usuario no válido.", "error")
 
-        # Filtrar por fechas
         if fecha_desde:
             try:
                 dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
@@ -396,7 +470,6 @@ def admin_registros():
 
         if fecha_hasta:
             try:
-                # Incluimos todo el día, hasta las 23:59:59
                 dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
                 dt_hasta = dt_hasta.replace(hour=23, minute=59, second=59)
                 query = query.filter(Registro.momento <= dt_hasta)
@@ -405,7 +478,7 @@ def admin_registros():
 
         registros = query.all()
 
-    # Calcular horas trabajadas por usuario dentro del filtro
+    # Horas trabajadas por usuario dentro del filtro
     horas_por_usuario = {}
     for usuario in usuarios:
         regs_usuario = [r for r in registros if r.usuario_id == usuario.id]
@@ -428,7 +501,10 @@ def admin_registros():
     )
 
 
-# === Login ===
+# ======================================================
+# Login / Logout
+# ======================================================
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -450,7 +526,7 @@ def login():
 
     return render_template("login.html")
 
-# === Logout ===
+
 @app.route("/logout")
 @login_required
 def logout():
@@ -458,11 +534,27 @@ def logout():
     flash("Has cerrado sesión", "success")
     return redirect(url_for("login"))
 
-# Inicializamos siempre que se importe el módulo (gunicorn, etc.)
+
+# ======================================================
+# Endpoint de salud para checks HTTP desde la consola
+# ======================================================
+
+@app.route("/health")
+def health():
+    """
+    Endpoint simple para health-checks.
+    No requiere login, solo devuelve 200 OK.
+    """
+    return "OK", 200
+
+
+# ======================================================
+# Inicialización al importar (gunicorn, etc.)
+# ======================================================
+
 init_app()
 
 if __name__ == "__main__":
-    # Si lo ejecutas con `python app.py`, también usamos init_app()
     app.run(
         host="0.0.0.0",
         port=8000,
