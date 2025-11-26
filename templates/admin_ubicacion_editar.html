@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Editar ubicación - Administración{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Editar ubicación</h1>
+
+<div class="card">
+  <div class="card-body">
+    <form action="{{ url_for('editar_ubicacion', loc_id=loc.id) }}" method="post">
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Nombre</label>
+          <input type="text" name="name" class="form-control"
+                 value="{{ loc.name }}" required>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Latitud</label>
+          <input type="text" name="latitude" class="form-control"
+                 value="{{ loc.latitude }}" required>
+        </div>
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Longitud</label>
+          <input type="text" name="longitude" class="form-control"
+                 value="{{ loc.longitude }}" required>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col-md-3 mb-3">
+          <label class="form-label">Radio permitido (m)</label>
+          <input type="number" name="radius_meters" class="form-control"
+                 value="{{ loc.radius_meters }}" min="1" required>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between mt-2">
+        <a href="{{ url_for('admin_ubicaciones') }}" class="btn btn-outline-secondary">
+          Volver
+        </a>
+        <button type="submit" class="btn btn-primary">
+          Guardar cambios
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

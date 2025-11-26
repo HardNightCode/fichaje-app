@@ -1,0 +1,26 @@
+Crear entorno virtual: 
+    py -m venv venv
+
+Activar el entorno virtual(dentro de raiz del proyecto):
+ 1:    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+ 2:   venv\Scripts\Activate.ps1
+
+Actualizar pip  
+    python.exe -m pip install --upgrade pip
+
+Instalar Flask
+    pip install flask
+
+Opcional pero recomendable, guarda las dependencias:
+    pip freeze > requirements.txt
+
+Ejecutar aplicacion
+    py app.py
+
+
+
+Aplicacion : /app.py 
+    |
+    |- Plantilla: /templates/index.html
+    

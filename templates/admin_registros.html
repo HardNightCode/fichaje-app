@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Registros - Administración{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Panel de administración - Registros</h1>
+
+<div class="card mb-4">
+  <div class="card-header">Filtros</div>
+  <div class="card-body">
+    <form action="{{ url_for('admin_registros') }}" method="post" class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Usuario</label>
+        <select name="usuario_id" class="form-select">
+          <option value="all" {% if usuario_seleccionado == 'all' %}selected{% endif %}>Todos</option>
+          {% for u in usuarios %}
+            <option value="{{ u.id }}"
+              {% if usuario_seleccionado|int == u.id %}selected{% endif %}>
+              {{ u.username }} ({{ u.role }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Fecha desde</label>
+        <input type="date" name="fecha_desde" value="{{ fecha_desde }}" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Fecha hasta</label>
+        <input type="date" name="fecha_hasta" value="{{ fecha_hasta }}" class="form-control">
+      </div>
+      <div class="col-md-2 d-flex align-items-end">
+        <button type="submit" class="btn btn-primary w-100">Aplicar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- NUEVO: RESUMEN HORAS POR USUARIO -->
+<div class="card mb-4">
+  <div class="card-header">Resumen de horas por usuario (en el rango filtrado)</div>
+  <div class="card-body">
+    {% if horas_por_usuario %}
+      <ul class="list-group list-group-flush">
+        {% for username, horas in horas_por_usuario.items() %}
+          <li class="list-group-item d-flex justify-content-between">
+            <span>{{ username }}</span>
+            <span class="fw-semibold">{{ horas }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted mb-0">
+        No hay suficientes registros para calcular horas con los filtros actuales.
+      </p>
+    {% endif %}
+  </div>
+</div>
+<!-- FIN RESUMEN HORAS -->
+
+<div class="card">
+  <div class="card-header">Resultados</div>
+  <div class="card-body p-0">
+    {% if registros %}
+      <div class="table-responsive">
+        <table class="table table-striped table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Usuario</th>
+              <th>Rol</th>
+              <th>Acción</th>
+              <th>Fecha y hora (UTC)</th>
+              <th>Ubicación</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for r in registros %}
+            <tr>
+              <td>{{ r.usuario.username }}</td>
+              <td>{{ r.usuario.role }}</td>
+              <td>
+                {% if r.accion == 'entrada' %}
+                  <span class="badge bg-success">Entrada</span>
+                {% else %}
+                  <span class="badge bg-danger">Salida</span>
+                {% endif %}
+              </td>
+              <td>{{ r.momento }}</td>
+              <td>
+                {% if r.latitude is not none and r.longitude is not none %}
+                  {{ "%.6f"|format(r.latitude) }},
+                  {{ "%.6f"|format(r.longitude) }}<br>
+                  <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
+                     class="link-primary" target="_blank">
+                    Ver en Google Maps
+                  </a>
+                {% else %}
+                  <span class="text-muted">Sin datos</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted p-3 mb-0">No hay registros para los filtros seleccionados.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

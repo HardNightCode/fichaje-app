@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Ubicaciones - Administración{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Ubicaciones</h1>
+
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card mb-4">
+      <div class="card-header">Crear nueva ubicación</div>
+      <div class="card-body">
+        <form action="{{ url_for('admin_ubicaciones') }}" method="post">
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input type="text" name="name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Latitud</label>
+            <input type="text" name="latitude" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Longitud</label>
+            <input type="text" name="longitude" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Radio permitido (m)</label>
+            <input type="number" name="radius_meters" class="form-control" value="100" min="1" required>
+          </div>
+          <button type="submit" class="btn btn-primary">Guardar ubicación</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header">Ubicaciones existentes</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-striped table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Nombre</th>
+                <th>Latitud</th>
+                <th>Longitud</th>
+                <th>Radio (m)</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for loc in ubicaciones %}
+              <tr>
+                <td>{{ loc.name }}</td>
+                <td>{{ loc.latitude }}</td>
+                <td>{{ loc.longitude }}</td>
+                <td>{{ loc.radius_meters }}</td>
+                <td>
+                  <a href="{{ url_for('editar_ubicacion', loc_id=loc.id) }}"
+                     class="btn btn-sm btn-outline-secondary">Editar</a>
+                  <form action="{{ url_for('eliminar_ubicacion', loc_id=loc.id) }}"
+                        method="post" class="d-inline"
+                        onsubmit="return confirm('¿Seguro que quieres eliminar esta ubicación?');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+            {% if ubicaciones|length == 0 %}
+              <tr>
+                <td colspan="5" class="text-center text-muted py-3">
+                  No hay ubicaciones definidas.
+                </td>
+              </tr>
+            {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
