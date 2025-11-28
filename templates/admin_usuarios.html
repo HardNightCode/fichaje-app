@@ -1,46 +1,196 @@
 {% extends "base.html" %}
-{% block title %}Usuarios y ubicaciones - Administración{% endblock %}
+
+{% block title %}Administración - Usuarios y ubicaciones{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Asignar ubicaciones a usuarios</h1>
+<h1 class="mb-4">Administración de usuarios y ubicaciones</h1>
 
 <div class="card">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <form action="{{ url_for('admin_usuarios') }}" method="post">
-        <table class="table table-striped table-hover mb-0">
+  <div class="card-header">
+    Asignar múltiples ubicaciones por usuario
+  </div>
+  <div class="card-body">
+    <form action="{{ url_for('admin_usuarios') }}" method="post">
+      <div class="table-responsive">
+        <table class="table table-striped align-middle">
           <thead class="table-light">
             <tr>
               <th>Usuario</th>
               <th>Rol</th>
-              <th>Ubicación asignada</th>
+              <th>Ubicaciones</th>
             </tr>
           </thead>
           <tbody>
           {% for u in usuarios %}
-            <tr>
+            <tr data-user-id="{{ u.id }}">
               <td>{{ u.username }}</td>
               <td>{{ u.role }}</td>
               <td>
-                <select name="location_{{ u.id }}" class="form-select form-select-sm">
-                  <option value="none">Ninguna</option>
-                  {% for loc in ubicaciones %}
-                    <option value="{{ loc.id }}"
-                      {% if u.location_id == loc.id %}selected{% endif %}>
-                      {{ loc.name }}
-                    </option>
-                  {% endfor %}
-                </select>
+                <div id="locations-{{ u.id }}" class="locations-container">
+
+                  {% set asignadas = user_locations_map.get(u.id, []) %}
+                  {% if asignadas %}
+                    {% for loc in asignadas %}
+                      <div class="input-group mb-1 location-select-row">
+                        <select
+                          name="locations_{{ u.id }}[]"
+                          class="form-select location-select"
+                          data-user-id="{{ u.id }}"
+                        >
+                          <!-- Primera opción: Borrar -->
+                          <option value="borrar" class="text-danger">Borrar</option>
+                          <!-- Opción vacía (solo como relleno visual si se borra) -->
+                          <option value="">(sin ubicación)</option>
+
+                          {% for loc_opt in ubicaciones %}
+                            <option value="{{ loc_opt.id }}"
+                              {% if loc_opt.id == loc.id %}selected{% endif %}
+                            >
+                              {{ loc_opt.name }}
+                            </option>
+                          {% endfor %}
+                        </select>
+                      </div>
+                    {% endfor %}
+                  {% else %}
+                    <!-- Si no tiene ninguna, mostramos una fila vacía -->
+                    <div class="input-group mb-1 location-select-row">
+                      <select
+                        name="locations_{{ u.id }}[]"
+                        class="form-select location-select"
+                        data-user-id="{{ u.id }}"
+                      >
+                        <option value="borrar" class="text-danger">Borrar</option>
+                        <option value="" selected>Selecciona ubicación...</option>
+                        {% for loc_opt in ubicaciones %}
+                          <option value="{{ loc_opt.id }}">
+                            {{ loc_opt.name }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </div>
+                  {% endif %}
+                </div>
+
+                <!-- Botón para añadir otra ubicación -->
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-primary mt-1 add-location-btn"
+                  data-user-id="{{ u.id }}"
+                >
+                  +
+                </button>
               </td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
-        <div class="p-3 border-top text-end">
-          <button type="submit" class="btn btn-primary">Guardar cambios</button>
-        </div>
-      </form>
-    </div>
+      </div>
+
+      <button type="submit" class="btn btn-success mt-3">
+        Guardar cambios
+      </button>
+    </form>
   </div>
 </div>
+
+<style>
+  /* Opcional: aspecto gris oscuro para ubicaciones deshabilitadas por Flexible */
+  .location-disabled {
+    opacity: 0.6;
+  }
+</style>
+
+<script>
+  // ID numérico de la ubicación "Flexible" (o null si no existe por algún motivo)
+  const FLEXIBLE_LOCATION_ID = {{ flexible_location_id if flexible_location_id is not none else 'null' }};
+
+  function actualizarFlexibleParaUsuario(userId) {
+    const container = document.getElementById('locations-' + userId);
+    if (!container) return;
+
+    const selects = container.querySelectorAll('select.location-select');
+    if (!selects.length) return;
+
+    let flexibleActivo = false;
+
+    selects.forEach(function(sel) {
+      if (FLEXIBLE_LOCATION_ID !== null && sel.value === String(FLEXIBLE_LOCATION_ID)) {
+        flexibleActivo = true;
+      }
+    });
+
+    selects.forEach(function(sel) {
+      if (flexibleActivo) {
+        if (FLEXIBLE_LOCATION_ID !== null && sel.value === String(FLEXIBLE_LOCATION_ID)) {
+          // La select que tiene Flexible sigue activa y normal
+          sel.disabled = false;
+          sel.classList.remove('location-disabled');
+        } else {
+          // El resto se deshabilitan y se ven "en gris"
+          sel.disabled = true;
+          sel.classList.add('location-disabled');
+        }
+      } else {
+        // Si Flexible ya no está seleccionado, todo vuelve a la normalidad
+        sel.disabled = false;
+        sel.classList.remove('location-disabled');
+      }
+    });
+  }
+
+  function inicializarEventosUbicaciones() {
+    // Eventos de cambio en todos los selects de ubicaciones
+    document.querySelectorAll('select.location-select').forEach(function(sel) {
+      sel.addEventListener('change', function() {
+        const userId = this.getAttribute('data-user-id');
+
+        // Si el usuario elige "Borrar", no hace falta hacer nada especial aquí:
+        // en el backend simplemente ignoramos esa opción al guardar.
+        actualizarFlexibleParaUsuario(userId);
+      });
+    });
+
+    // Botones "+" para añadir nuevas cajas desplegables
+    document.querySelectorAll('.add-location-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        const userId = this.getAttribute('data-user-id');
+        const container = document.getElementById('locations-' + userId);
+        if (!container) return;
+
+        // Clonamos la primera fila como plantilla
+        const primeraFila = container.querySelector('.location-select-row');
+        if (!primeraFila) return;
+
+        const nuevaFila = primeraFila.cloneNode(true);
+        const nuevoSelect = nuevaFila.querySelector('select.location-select');
+
+        // Reiniciamos el select: sin Flexible ni otras selecciones
+        if (nuevoSelect) {
+          nuevoSelect.value = "";
+          nuevoSelect.disabled = false;
+          nuevoSelect.classList.remove('location-disabled');
+          nuevoSelect.setAttribute('data-user-id', userId);
+
+          // Reenganchar evento change
+          nuevoSelect.addEventListener('change', function() {
+            const uId = this.getAttribute('data-user-id');
+            actualizarFlexibleParaUsuario(uId);
+          });
+        }
+
+        container.appendChild(nuevaFila);
+      });
+    });
+
+    // Estado inicial de Flexible por cada usuario
+    document.querySelectorAll('.locations-container').forEach(function(cont) {
+      const userId = cont.id.replace('locations-', '');
+      actualizarFlexibleParaUsuario(userId);
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', inicializarEventosUbicaciones);
+</script>
+
 {% endblock %}

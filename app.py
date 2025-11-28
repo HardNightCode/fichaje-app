@@ -98,9 +98,17 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), default="empleado")  # 'admin' o 'empleado'
-    location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=True)
 
-    location = db.relationship("Location", backref=db.backref("users", lazy=True))
+    # Relación antigua (ubicación única)
+    location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=True)
+    location = db.relationship("Location", backref=db.backref("users_single", lazy=True))
+
+    # NUEVO: relación muchos-a-muchos (ubicaciones múltiples)
+    locations_multi = db.relationship(
+        "Location",
+        secondary="user_location",
+        backref=db.backref("users_multi", lazy="dynamic"),
+    )
 
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
@@ -134,6 +142,15 @@ class Registro(db.Model):
     usuario = db.relationship("User", backref=db.backref("registros", lazy=True))
 
 
+# NUEVO: tabla intermedia usuario <-> ubicación
+class UserLocation(db.Model):
+    __tablename__ = "user_location"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=False)
+
+
 # ======================================================
 # Carga de usuario para Flask-Login
 # ======================================================
@@ -161,6 +178,7 @@ def admin_required(view_func):
 
 def crear_tablas():
     db.create_all()
+
     # Si no hay ningún usuario, creamos uno admin de ejemplo
     if User.query.count() == 0:
         admin = User(username="admin", role="admin")
@@ -168,6 +186,17 @@ def crear_tablas():
         db.session.add(admin)
         db.session.commit()
 
+    # Asegurar que exista siempre la ubicación "Flexible"
+    flexible = Location.query.filter_by(name="Flexible").first()
+    if flexible is None:
+        flexible = Location(
+            name="Flexible",
+            latitude=0.0,
+            longitude=0.0,
+            radius_meters=0.0,  # No se usará para el check
+        )
+        db.session.add(flexible)
+        db.session.commit()
 
 def init_app():
     """
@@ -355,37 +384,83 @@ def eliminar_ubicacion(loc_id):
 def admin_usuarios():
     usuarios = User.query.order_by(User.username).all()
     ubicaciones = Location.query.order_by(Location.name).all()
+    flexible = Location.query.filter_by(name="Flexible").first()
+    flexible_location_id = flexible.id if flexible else None
 
     if request.method == "POST":
         for user in usuarios:
-            field_name = f"location_{user.id}"
-            value = request.form.get(field_name, "none")
+            # Nombre del campo por usuario: locations_<id>[]
+            field_name = f"locations_{user.id}[]"
+            valores = request.form.getlist(field_name)
 
-            if value in ("none", ""):
-                user.location_id = None
-            else:
+            # Limpiamos todas las asociaciones antiguas (multi)
+            user.locations_multi.clear()
+            # Y también la ubicación única antigua (ya no se gestiona desde aquí)
+            user.location_id = None
+
+            for v in valores:
+                # Opción "Borrar" o vacío: no se añade nada
+                if not v or v == "borrar":
+                    continue
                 try:
-                    user.location_id = int(value)
+                    loc_id = int(v)
                 except ValueError:
                     continue
+
+                loc = Location.query.get(loc_id)
+                if loc and loc not in user.locations_multi:
+                    user.locations_multi.append(loc)
 
         db.session.commit()
         flash("Ubicaciones de usuarios actualizadas.", "success")
         return redirect(url_for("admin_usuarios"))
 
+    # Mapa usuario -> lista de ubicaciones asignadas (para pintar el formulario)
+    user_locations_map = {}
+    for user in usuarios:
+        if user.locations_multi:
+            user_locations_map[user.id] = list(user.locations_multi)
+        elif user.location is not None:
+            # Compatibilidad: si solo tenía la ubicación antigua
+            user_locations_map[user.id] = [user.location]
+        else:
+            user_locations_map[user.id] = []
+
     return render_template(
         "admin_usuarios.html",
         usuarios=usuarios,
         ubicaciones=ubicaciones,
+        flexible_location_id=flexible_location_id,
+        user_locations_map=user_locations_map,
     )
 
+def obtener_ubicaciones_usuario(user):
+    """
+    Devuelve la lista de ubicaciones permitidas para el usuario,
+    combinando la ubicación única antigua (location) y las múltiples (locations_multi).
+    No duplica ubicaciones.
+    """
+    ubicaciones = []
+
+    # Ubicaciones múltiples (nueva relación)
+    if user.locations_multi:
+        ubicaciones.extend(user.locations_multi)
+
+    # Ubicación única antigua (para compatibilidad) si no está ya en la lista
+    if user.location is not None and user.location not in ubicaciones:
+        ubicaciones.append(user.location)
+
+    return ubicaciones
 
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():
-    if current_user.location is None:
+    # Obtener todas las ubicaciones asignadas al usuario
+    ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
+
+    if not ubicaciones_usuario:
         flash(
-            "No tienes una ubicación asignada. Contacta con el administrador.",
+            "No tienes ninguna ubicación asignada. Contacta con el administrador.",
             "error",
         )
         return redirect(url_for("index"))
@@ -423,16 +498,31 @@ def fichar():
         flash("Coordenadas de ubicación inválidas.", "error")
         return redirect(url_for("index"))
 
-    loc = current_user.location
-    if not is_within_radius(
-        lat_user,
-        lon_user,
-        loc.latitude,
-        loc.longitude,
-        loc.radius_meters,
-    ):
+    # ¿Tiene ubicación "Flexible"?
+    tiene_flexible = any(
+        loc.name == "Flexible" for loc in ubicaciones_usuario
+    )
+
+    permitido = False
+    if tiene_flexible:
+        # Cualquier ubicación es válida
+        permitido = True
+    else:
+        # Debe estar dentro del radio de AL MENOS UNA ubicación asignada
+        for loc in ubicaciones_usuario:
+            if is_within_radius(
+                lat_user,
+                lon_user,
+                loc.latitude,
+                loc.longitude,
+                loc.radius_meters,
+            ):
+                permitido = True
+                break
+
+    if not permitido:
         flash(
-            "No estás dentro de tu ubicación autorizada. No se registra el fichaje.",
+            "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
             "error",
         )
         return redirect(url_for("index"))
@@ -449,7 +539,6 @@ def fichar():
 
     flash("Fichaje registrado correctamente", "success")
     return redirect(url_for("index"))
-
 
 # ======================================================
 # Gestión de usuarios
