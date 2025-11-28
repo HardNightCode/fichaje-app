@@ -3,10 +3,14 @@ from functools import wraps
 from pathlib import Path
 import os
 import logging
+import csv
+import io
+from io import StringIO
 from logging.handlers import RotatingFileHandler
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, Response, render_template, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
+from flask_weasyprint import HTML, render_pdf
 from flask_login import (
     LoginManager,
     UserMixin,
@@ -177,6 +181,47 @@ def init_app():
 # ======================================================
 # Rutas
 # ======================================================
+
+@app.route("/admin/generar_informe", methods=["POST"])
+@login_required
+def generar_informe():
+    # Recibir datos del formulario
+    usuario_id = request.form.get("usuario_id")
+    fecha_desde = request.form.get("fecha_desde")
+    fecha_hasta = request.form.get("fecha_hasta")
+
+    # Convertir las fechas a objetos datetime
+    try:
+        fecha_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
+        fecha_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d") + timedelta(days=1)  # Incluye todo el día hasta las 23:59:59
+    except ValueError:
+        flash("Las fechas no son válidas.", "error")
+        return redirect(url_for("admin_registros"))
+
+    # Filtrar registros por usuario y fechas
+    query = Registro.query.filter(Registro.momento >= fecha_desde, Registro.momento <= fecha_hasta)
+
+    if usuario_id != "all":
+        query = query.filter(Registro.usuario_id == int(usuario_id))
+
+    registros = query.all()
+
+    # Si no se encontraron registros, mostramos un mensaje de error
+    if not registros:
+        flash("No se encontraron registros para este periodo y usuario.", "error")
+        return redirect(url_for("admin_registros"))
+
+    # Preparar los datos del informe
+    resumen_horas = calcular_horas_trabajadas(registros)
+
+    # Generar el PDF con los datos
+    try:
+        html = render_template("informe_pdf.html", registros=registros, resumen_horas=resumen_horas, tipo_periodo="rango")
+        return render_pdf(HTML(string=html))
+    except Exception as e:
+        app.logger.error(f"Error al generar el PDF: {e}")
+        flash("Hubo un problema generando el informe PDF.", "error")
+        return redirect(url_for("admin_registros"))
 
 @app.route("/")
 @login_required
@@ -436,31 +481,30 @@ def register():
 
     return render_template("register.html")
 
+# ======================================================
+# Helper para construir la consulta de registros
+# ======================================================
 
-@app.route("/admin/registros", methods=["GET", "POST"])
-@admin_required
-def admin_registros():
-    usuarios = User.query.order_by(User.username).all()
+def construir_query_registros(usuario_seleccionado: str,
+                              fecha_desde: str,
+                              fecha_hasta: str,
+                              tipo_periodo: str):
+    """
+    Construye y devuelve un objeto Query de SQLAlchemy
+    en función de los filtros recibidos.
+    """
+    query = Registro.query.join(User).order_by(Registro.momento.desc())
 
-    registros = []
-    usuario_seleccionado = "all"
-    fecha_desde = ""
-    fecha_hasta = ""
+    # Filtro por usuario
+    if usuario_seleccionado != "all":
+        try:
+            uid = int(usuario_seleccionado)
+            query = query.filter(Registro.usuario_id == uid)
+        except ValueError:
+            flash("Usuario no válido.", "error")
 
-    if request.method == "POST":
-        usuario_seleccionado = request.form.get("usuario_id", "all")
-        fecha_desde = request.form.get("fecha_desde", "")
-        fecha_hasta = request.form.get("fecha_hasta", "")
-
-        query = Registro.query.join(User).order_by(Registro.momento.desc())
-
-        if usuario_seleccionado != "all":
-            try:
-                uid = int(usuario_seleccionado)
-                query = query.filter(Registro.usuario_id == uid)
-            except ValueError:
-                flash("Usuario no válido.", "error")
-
+    # Filtro por tipo de periodo
+    if tipo_periodo == "rango":
         if fecha_desde:
             try:
                 dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
@@ -476,9 +520,145 @@ def admin_registros():
             except ValueError:
                 flash("Fecha 'hasta' no válida.", "error")
 
+    elif tipo_periodo == "semanal":
+        today = datetime.today()
+        # Lunes de la semana actual
+        start_of_week = today - timedelta(days=today.weekday())
+        start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_week = start_of_week + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        query = query.filter(Registro.momento >= start_of_week,
+                             Registro.momento <= end_of_week)
+
+    elif tipo_periodo == "mensual":
+        today = datetime.today()
+        start_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if today.month == 12:
+            next_month = start_of_month.replace(year=today.year + 1, month=1)
+        else:
+            next_month = start_of_month.replace(month=today.month + 1)
+        end_of_month = next_month - timedelta(seconds=1)
+        query = query.filter(Registro.momento >= start_of_month,
+                             Registro.momento <= end_of_month)
+
+    elif tipo_periodo == "historico":
+        # No se aplica filtro de fechas, se devuelven todos los registros
+        pass
+
+    return query
+
+
+# ======================================================
+# Administración de registros (filtros, CSV y PDF)
+# ======================================================
+
+from flask import Response  # Asegúrate de tener esto al principio del archivo
+
+@app.route("/admin/registros", methods=["GET", "POST"])
+@admin_required
+def admin_registros():
+    usuarios = User.query.order_by(User.username).all()
+
+    # Valores por defecto (GET)
+    usuario_seleccionado = "all"
+    tipo_periodo = "rango"
+    fecha_desde = ""
+    fecha_hasta = ""
+    fecha_semana = ""
+    mes = None   # entero o None
+    registros = []
+
+    if request.method == "POST":
+        usuario_seleccionado = request.form.get("usuario_id", "all")
+        tipo_periodo = request.form.get("tipo_periodo", "rango")
+        fecha_desde = request.form.get("fecha_desde", "")
+        fecha_hasta = request.form.get("fecha_hasta", "")
+        fecha_semana = request.form.get("fecha_semana", "")
+        mes_str = request.form.get("mes", "")
+        accion = request.form.get("accion", "filtrar")
+
+        # mes_str -> mes (int o None) para que la plantilla pueda comparar con números
+        mes = int(mes_str) if mes_str else None
+
+        query = Registro.query.join(User).order_by(Registro.momento.desc())
+
+        # ---- Filtro por usuario ----
+        if usuario_seleccionado != "all":
+            try:
+                uid = int(usuario_seleccionado)
+                query = query.filter(Registro.usuario_id == uid)
+            except ValueError:
+                flash("Usuario no válido.", "error")
+
+        # ---- Filtro por tipo de periodo ----
+        if tipo_periodo == "rango":
+            if fecha_desde:
+                try:
+                    dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
+                    dt_desde = dt_desde.replace(hour=0, minute=0, second=0, microsecond=0)
+                    query = query.filter(Registro.momento >= dt_desde)
+                except ValueError:
+                    flash("Fecha 'desde' no válida.", "error")
+
+            if fecha_hasta:
+                try:
+                    dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                    dt_hasta = dt_hasta.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    query = query.filter(Registro.momento <= dt_hasta)
+                except ValueError:
+                    flash("Fecha 'hasta' no válida.", "error")
+
+        elif tipo_periodo == "semanal":
+            if fecha_semana:
+                try:
+                    start_of_week = datetime.strptime(fecha_semana, "%Y-%m-%d")
+                    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+                    end_of_week = start_of_week + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                    query = query.filter(
+                        Registro.momento >= start_of_week,
+                        Registro.momento <= end_of_week,
+                    )
+                except ValueError:
+                    flash("Fecha de semana no válida.", "error")
+
+        elif tipo_periodo == "mensual":
+            if mes:
+                try:
+                    hoy = datetime.today()
+                    year = hoy.year
+                    start_of_month = datetime(year, mes, 1, 0, 0, 0)
+
+                    if mes == 12:
+                        next_month = datetime(year + 1, 1, 1, 0, 0, 0)
+                    else:
+                        next_month = datetime(year, mes + 1, 1, 0, 0, 0)
+
+                    end_of_month = next_month - timedelta(seconds=1)
+
+                    query = query.filter(
+                        Registro.momento >= start_of_month,
+                        Registro.momento <= end_of_month,
+                    )
+                except ValueError:
+                    flash("Mes no válido.", "error")
+
+        elif tipo_periodo == "historico":
+            # No se filtra por fechas: se muestran todos los registros que cumplan el filtro de usuario
+            pass
+
+        # Ejecutamos la consulta una sola vez
         registros = query.all()
 
-    # Horas trabajadas por usuario dentro del filtro
+        # ---- Exportaciones ----
+        if accion == "csv":
+            return generar_csv(registros)
+        if accion == "pdf":
+            return generar_pdf(registros, tipo_periodo)
+
+    else:
+        # GET: mes None, para que el select no fuerce nada especial
+        mes = None
+
+    # ---- Resumen de horas trabajadas por usuario en el filtro actual ----
     horas_por_usuario = {}
     for usuario in usuarios:
         regs_usuario = [r for r in registros if r.usuario_id == usuario.id]
@@ -497,9 +677,56 @@ def admin_registros():
         usuario_seleccionado=usuario_seleccionado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        fecha_semana=fecha_semana,
+        tipo_periodo=tipo_periodo,
         horas_por_usuario=horas_por_usuario,
+        mes=mes,
     )
 
+
+def generar_csv(registros):
+    """Generar un archivo CSV con los registros filtrados actuales."""
+    output = StringIO()
+    writer = csv.writer(output, delimiter=";")
+
+    # Cabecera
+    writer.writerow(["Usuario", "Acción", "Fecha y hora (UTC)", "Latitud", "Longitud"])
+
+    for r in registros:
+        writer.writerow([
+            r.usuario.username if r.usuario else "",
+            r.accion,
+            r.momento.strftime("%Y-%m-%d %H:%M:%S"),
+            f"{r.latitude:.6f}" if r.latitude is not None else "",
+            f"{r.longitude:.6f}" if r.longitude is not None else "",
+        ])
+
+    csv_data = output.getvalue().encode("utf-8-sig")
+    output.close()
+
+    filename = f"registros_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        csv_data,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def generar_pdf(registros, tipo_periodo: str):
+    """
+    Genera un PDF usando la plantilla EXISTENTE informe_pdf.html
+    para evitar el error TemplateNotFound.
+    """
+    resumen_horas = calcular_horas_trabajadas(registros)
+
+    html = render_template(
+        "informe_pdf.html",
+        registros=registros,
+        resumen_horas=resumen_horas,
+        tipo_periodo=tipo_periodo,
+    )
+    # Usamos flask_weasyprint.render_pdf que ya tienes importado
+    return render_pdf(HTML(string=html))
 
 # ======================================================
 # Login / Logout

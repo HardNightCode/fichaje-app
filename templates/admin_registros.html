@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+
 {% block title %}Registros - Administración{% endblock %}
 
 {% block content %}
@@ -8,7 +9,9 @@
   <div class="card-header">Filtros</div>
   <div class="card-body">
     <form action="{{ url_for('admin_registros') }}" method="post" class="row g-3">
-      <div class="col-md-4">
+
+      <!-- Usuario -->
+      <div class="col-md-3">
         <label class="form-label">Usuario</label>
         <select name="usuario_id" class="form-select">
           <option value="all" {% if usuario_seleccionado == 'all' %}selected{% endif %}>Todos</option>
@@ -20,24 +23,75 @@
           {% endfor %}
         </select>
       </div>
+
+      <!-- Tipo de periodo -->
       <div class="col-md-3">
+        <label class="form-label">Tipo de periodo</label>
+        <select name="tipo_periodo" id="tipo_periodo" class="form-select">
+          <option value="rango" {% if tipo_periodo == 'rango' %}selected{% endif %}>Rango de fechas</option>
+          <option value="semanal" {% if tipo_periodo == 'semanal' %}selected{% endif %}>Semana</option>
+          <option value="mensual" {% if tipo_periodo == 'mensual' %}selected{% endif %}>Mes</option>
+          <option value="historico" {% if tipo_periodo == 'historico' %}selected{% endif %}>Histórico (todos)</option>
+        </select>
+      </div>
+
+      <!-- Selector de fecha para la semana -->
+      <div class="col-md-3" id="grupo-semana" style="display: none;">
+        <label class="form-label">Semana</label>
+        <input type="date" name="fecha_semana" class="form-control" value="{{ fecha_semana }}">
+      </div>
+
+      <!-- Mes -->
+      <div class="col-md-2" id="grupo-mes" style="display: none;">
+        <label class="form-label">Mes</label>
+        <select name="mes" class="form-select">
+          <option value="1" {% if mes == 1 %}selected{% endif %}>Enero</option>
+          <option value="2" {% if mes == 2 %}selected{% endif %}>Febrero</option>
+          <option value="3" {% if mes == 3 %}selected{% endif %}>Marzo</option>
+          <option value="4" {% if mes == 4 %}selected{% endif %}>Abril</option>
+          <option value="5" {% if mes == 5 %}selected{% endif %}>Mayo</option>
+          <option value="6" {% if mes == 6 %}selected{% endif %}>Junio</option>
+          <option value="7" {% if mes == 7 %}selected{% endif %}>Julio</option>
+          <option value="8" {% if mes == 8 %}selected{% endif %}>Agosto</option>
+          <option value="9" {% if mes == 9 %}selected{% endif %}>Septiembre</option>
+          <option value="10" {% if mes == 10 %}selected{% endif %}>Octubre</option>
+          <option value="11" {% if mes == 11 %}selected{% endif %}>Noviembre</option>
+          <option value="12" {% if mes == 12 %}selected{% endif %}>Diciembre</option>
+        </select>
+      </div>
+
+      <!-- Fechas solo para "rango" -->
+      <div class="col-md-2" id="grupo-fecha-desde">
         <label class="form-label">Fecha desde</label>
         <input type="date" name="fecha_desde" value="{{ fecha_desde }}" class="form-control">
       </div>
-      <div class="col-md-3">
+
+      <div class="col-md-2" id="grupo-fecha-hasta">
         <label class="form-label">Fecha hasta</label>
         <input type="date" name="fecha_hasta" value="{{ fecha_hasta }}" class="form-control">
       </div>
+
+      <!-- Botones -->
       <div class="col-md-2 d-flex align-items-end">
-        <button type="submit" class="btn btn-primary w-100">Aplicar</button>
+        <div class="btn-group w-100">
+          <button type="submit" name="accion" value="filtrar" class="btn btn-primary">
+            Aplicar
+          </button>
+          <button type="submit" name="accion" value="csv" class="btn btn-outline-secondary">
+            CSV
+          </button>
+          <button type="submit" name="accion" value="pdf" class="btn btn-success">
+            PDF
+          </button>
+        </div>
       </div>
     </form>
   </div>
 </div>
 
-<!-- NUEVO: RESUMEN HORAS POR USUARIO -->
+<!-- RESUMEN HORAS POR USUARIO -->
 <div class="card mb-4">
-  <div class="card-header">Resumen de horas por usuario (en el rango filtrado)</div>
+  <div class="card-header">Resumen de horas por usuario (en el periodo seleccionado)</div>
   <div class="card-body">
     {% if horas_por_usuario %}
       <ul class="list-group list-group-flush">
@@ -107,4 +161,42 @@
     {% endif %}
   </div>
 </div>
+
+<script>
+  function actualizarVisibilidadFechas() {
+    var tipo = document.getElementById('tipo_periodo').value;
+    var grupoSemana = document.getElementById('grupo-semana');
+    var grupoMes = document.getElementById('grupo-mes');
+    var grupoDesde = document.getElementById('grupo-fecha-desde');
+    var grupoHasta = document.getElementById('grupo-fecha-hasta');
+
+    if (tipo === 'rango') {
+      grupoSemana.style.display = 'none';
+      grupoMes.style.display = 'none';
+      grupoDesde.style.display = '';
+      grupoHasta.style.display = '';
+    } else if (tipo === 'semanal') {
+      grupoSemana.style.display = '';
+      grupoMes.style.display = 'none';
+      grupoDesde.style.display = 'none';
+      grupoHasta.style.display = 'none';
+    } else if (tipo === 'mensual') {
+      grupoSemana.style.display = 'none';
+      grupoMes.style.display = '';
+      grupoDesde.style.display = 'none';
+      grupoHasta.style.display = 'none';
+    } else {
+      grupoSemana.style.display = 'none';
+      grupoMes.style.display = 'none';
+      grupoDesde.style.display = 'none';
+      grupoHasta.style.display = 'none';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    actualizarVisibilidadFechas();
+    document.getElementById('tipo_periodo').addEventListener('change', actualizarVisibilidadFechas);
+  });
+</script>
+
 {% endblock %}

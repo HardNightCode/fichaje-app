@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Informe de Registros</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        h2 {
+            margin-top: 30px;
+            color: #555;
+        }
+
+        p {
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 8px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f4f4f4;
+        }
+
+        td {
+            font-size: 12px;
+        }
+
+        .table-container {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Informe de Registros</h1>
+    <p><strong>Periodo:</strong> {{ tipo_periodo }}</p>
+
+    <h2>Resumen de horas trabajadas</h2>
+    {% if resumen_horas %}
+        <ul>
+        {% for usuario, horas in resumen_horas.items() %}
+            <li><strong>{{ usuario }}:</strong> {{ horas }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No hay horas registradas para este periodo.</p>
+    {% endif %}
+
+    <h2>Registros de fichajes</h2>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Acción</th>
+                    <th>Fecha</th>
+                    <th>Ubicación</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for registro in registros %}
+                <tr>
+                    <td>{{ registro.usuario.username }}</td>
+                    <td>{{ registro.accion }}</td>
+                    <td>{{ registro.momento.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                    <td>{{ registro.latitude }}, {{ registro.longitude }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

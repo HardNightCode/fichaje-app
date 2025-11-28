@@ -24,3 +24,7 @@ Aplicacion : /app.py
     |
     |- Plantilla: /templates/index.html
     
+sudo apt install -y libpango-1.0-0 libgdk-pixbuf2.0-0 libcairo2
+sudo apt install -y libpangoft2-1.0-0
+sudo apt-get install libpango1.0-0 libcairo2
+sudo apt install -y libcairo2 libcairo2-dev libpango1.0-0 libpango1.0-dev libgdk-pixbuf2.0-0 libgdk-pixbuf2.0-dev
