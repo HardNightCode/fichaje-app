@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Ficha de {{ usuario.username }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Ficha de usuario: {{ usuario.username }}</h1>
+
+<div class="row">
+  <!-- Columna izquierda: info básica y ubicaciones -->
+  <div class="col-lg-5">
+    <div class="card mb-4">
+      <div class="card-header">
+        Información básica
+      </div>
+      <div class="card-body">
+        <p><strong>Usuario:</strong> {{ usuario.username }}</p>
+        <p><strong>Rol:</strong> {{ usuario.role }}</p>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header">
+        Ubicaciones asignadas
+      </div>
+      <div class="card-body">
+        {% if ubicaciones_usuario %}
+          <ul class="mb-0">
+          {% for loc in ubicaciones_usuario %}
+            <li>
+              <strong>{{ loc.name }}</strong>
+              <small class="text-muted">
+                ({{ loc.latitude }}, {{ loc.longitude }}, radio {{ loc.radius_meters }} m)
+              </small>
+            </li>
+          {% endfor %}
+          </ul>
+          <small class="text-muted d-block mt-2">
+            La edición de ubicaciones se realiza en
+            <code>/admin/usuarios</code>.
+          </small>
+        {% else %}
+          <p class="text-muted mb-0">
+            Este usuario no tiene ubicaciones asignadas.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Columna derecha: horarios y configuración -->
+  <div class="col-lg-7">
+    <div class="card mb-4">
+      <div class="card-header">
+        Configuración de horario
+      </div>
+      <div class="card-body">
+        <form action="{{ url_for('admin_usuario_ficha', user_id=usuario.id) }}" method="post" class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Horarios asignados</label>
+            {% if horarios %}
+              <div class="border rounded p-2" style="max-height: 250px; overflow-y: auto;">
+              {% for h in horarios %}
+                <div class="form-check">
+                  <input class="form-check-input"
+                         type="checkbox"
+                         name="schedule_ids"
+                         id="schedule_{{ h.id }}"
+                         value="{{ h.id }}"
+                         {% if h in horarios_usuario %}checked{% endif %}>
+                  <label class="form-check-label" for="schedule_{{ h.id }}">
+                    <strong>{{ h.name }}</strong>
+                    <small class="text-muted">
+                      ({{ h.start_time.strftime('%H:%M') }}–{{ h.end_time.strftime('%H:%M') }},
+                      {% if h.break_type == 'none' %}
+                        sin descanso
+                      {% elif h.break_type == 'fixed' %}
+                        descanso fijo {{ h.break_start.strftime('%H:%M') }}–{{ h.break_end.strftime('%H:%M') }}
+                      {% elif h.break_type == 'flexible' %}
+                        descanso flexible {{ h.break_minutes }} min
+                      {% endif %}
+                      )
+                    </small>
+                  </label>
+                </div>
+              {% endfor %}
+              </div>
+              <small class="text-muted d-block mt-1">
+                Puedes asignar uno o varios horarios. Si además activas "Detectar horario",
+                el sistema elegirá el más adecuado según la hora de fichaje.
+              </small>
+            {% else %}
+              <p class="text-muted mb-0">
+                No hay horarios definidos. Crea alguno en
+                <a href="{{ url_for('admin_horarios') }}">Administración &gt; Horarios</a>.
+              </p>
+            {% endif %}
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Forzar horario</label>
+            <select name="enforce_schedule" class="form-select">
+              <option value="no" {% if not settings.enforce_schedule %}selected{% endif %}>
+                No forzar
+              </option>
+              <option value="si" {% if settings.enforce_schedule %}selected{% endif %}>
+                Forzar horario
+              </option>
+            </select>
+            <small class="text-muted">
+              Si se fuerza, el usuario solo podrá fichar dentro de su horario
+              (aplicando el margen configurado).
+            </small>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Margen (minutos)</label>
+            <input type="number"
+                   min="0"
+                   name="margin_minutes"
+                   class="form-control"
+                   value="{{ settings.margin_minutes }}">
+            <small class="text-muted">
+              Minutos adicionales permitidos antes/después del horario.
+            </small>
+          </div>
+
+          <div class="col-12">
+            <div class="form-check">
+              <input class="form-check-input"
+                     type="checkbox"
+                     name="detect_schedule"
+                     id="detect_schedule"
+                     {% if settings.detect_schedule %}checked{% endif %}>
+              <label class="form-check-label" for="detect_schedule">
+                Detectar horario automáticamente
+              </label>
+            </div>
+            <small class="text-muted">
+              Si el usuario tiene varios horarios asignados, el sistema podrá
+              intentar determinar cuál aplica en función de la hora de fichaje.
+              (La lógica fina la implementaremos más adelante, de momento
+              dejamos esta configuración guardada.)
+            </small>
+          </div>
+
+          <div class="col-12">
+            <button type="submit" class="btn btn-primary">
+              Guardar configuración
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

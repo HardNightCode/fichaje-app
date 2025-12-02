@@ -37,6 +37,11 @@
               <li><a class="dropdown-item" href="{{ url_for('admin_ubicaciones') }}">Ubicaciones</a></li>
               <li><a class="dropdown-item" href="{{ url_for('admin_usuarios') }}">Usuarios / ubicaciones</a></li>
               <li><a class="dropdown-item" href="{{ url_for('register') }}">Crear usuario</a></li>
+
+              <li><hr class="dropdown-divider"></li>
+
+              <li><a class="dropdown-item" href="{{ url_for('admin_horarios') }}">Horarios</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('admin_usuarios_fichas') }}">Usuarios</a></li>
             </ul>
           </li>
           {% endif %}
@@ -90,3 +95,5 @@
 {% block scripts %}{% endblock %}
 </body>
 </html>
+
+

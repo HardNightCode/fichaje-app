@@ -40,7 +40,6 @@
                           <!-- Primera opción: Borrar -->
                           <option value="borrar" class="text-danger">Borrar</option>
                           <!-- Opción vacía (solo como relleno visual si se borra) -->
-                          <option value="">(sin ubicación)</option>
 
                           {% for loc_opt in ubicaciones %}
                             <option value="{{ loc_opt.id }}"
@@ -53,7 +52,8 @@
                       </div>
                     {% endfor %}
                   {% else %}
-                    <!-- Si no tiene ninguna, mostramos una fila vacía -->
+                    <!-- Si no tiene ninguna, mostram@app.route("/")
+ -->
                     <div class="input-group mb-1 location-select-row">
                       <select
                         name="locations_{{ u.id }}[]"

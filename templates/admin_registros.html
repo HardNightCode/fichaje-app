@@ -45,15 +45,16 @@
       <div class="col-md-2" id="grupo-mes" style="display: none;">
         <label class="form-label">Mes</label>
         <select name="mes" class="form-select">
-          <option value="1" {% if mes == 1 %}selected{% endif %}>Enero</option>
-          <option value="2" {% if mes == 2 %}selected{% endif %}>Febrero</option>
-          <option value="3" {% if mes == 3 %}selected{% endif %}>Marzo</option>
-          <option value="4" {% if mes == 4 %}selected{% endif %}>Abril</option>
-          <option value="5" {% if mes == 5 %}selected{% endif %}>Mayo</option>
-          <option value="6" {% if mes == 6 %}selected{% endif %}>Junio</option>
-          <option value="7" {% if mes == 7 %}selected{% endif %}>Julio</option>
-          <option value="8" {% if mes == 8 %}selected{% endif %}>Agosto</option>
-          <option value="9" {% if mes == 9 %}selected{% endif %}>Septiembre</option>
+          <option value="" {% if mes is none %}selected{% endif %}>Selecciona mes...</option>
+          <option value="1"  {% if mes == 1 %}selected{% endif %}>Enero</option>
+          <option value="2"  {% if mes == 2 %}selected{% endif %}>Febrero</option>
+          <option value="3"  {% if mes == 3 %}selected{% endif %}>Marzo</option>
+          <option value="4"  {% if mes == 4 %}selected{% endif %}>Abril</option>
+          <option value="5"  {% if mes == 5 %}selected{% endif %}>Mayo</option>
+          <option value="6"  {% if mes == 6 %}selected{% endif %}>Junio</option>
+          <option value="7"  {% if mes == 7 %}selected{% endif %}>Julio</option>
+          <option value="8"  {% if mes == 8 %}selected{% endif %}>Agosto</option>
+          <option value="9"  {% if mes == 9 %}selected{% endif %}>Septiembre</option>
           <option value="10" {% if mes == 10 %}selected{% endif %}>Octubre</option>
           <option value="11" {% if mes == 11 %}selected{% endif %}>Noviembre</option>
           <option value="12" {% if mes == 12 %}selected{% endif %}>Diciembre</option>
@@ -71,8 +72,25 @@
         <input type="date" name="fecha_hasta" value="{{ fecha_hasta }}" class="form-control">
       </div>
 
+      <!-- Filtro por ubicación -->
+      <div class="col-md-3">
+        <label class="form-label">Ubicación</label>
+        <select name="ubicacion_filtro" class="form-select">
+          <option value="all" {% if ubicacion_filtro == 'all' %}selected{% endif %}>Todas</option>
+          <option value="flexible" {% if ubicacion_filtro == 'flexible' %}selected{% endif %}>
+            Fuera de ubicaciones (Flexible)
+          </option>
+          {% for loc in ubicaciones_definidas %}
+            <option value="{{ loc.id }}"
+              {% if ubicacion_filtro|int == loc.id %}selected{% endif %}>
+              {{ loc.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
       <!-- Botones -->
-      <div class="col-md-2 d-flex align-items-end">
+      <div class="col-md-3 d-flex align-items-end">
         <div class="btn-group w-100">
           <button type="submit" name="accion" value="filtrar" class="btn btn-primary">
             Aplicar
@@ -124,11 +142,12 @@
               <th>Acción</th>
               <th>Fecha y hora (UTC)</th>
               <th>Ubicación</th>
+              <th class="text-end">Estado</th>
             </tr>
           </thead>
           <tbody>
           {% for r in registros %}
-            <tr>
+            <tr class="registro-row" data-registro-id="{{ r.id }}">
               <td>{{ r.usuario.username }}</td>
               <td>{{ r.usuario.role }}</td>
               <td>
@@ -140,7 +159,18 @@
               </td>
               <td>{{ r.momento }}</td>
               <td>
-                {% if r.latitude is not none and r.longitude is not none %}
+                {% set loc_reg = ubicacion_por_registro.get(r.id) %}
+                {% if loc_reg %}
+                  <strong>{{ loc_reg }}</strong><br>
+                  {% if r.latitude is not none and r.longitude is not none %}
+                    <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
+                       class="link-primary" target="_blank">
+                      Ver en Google Maps
+                    </a>
+                  {% else %}
+                    <span class="text-muted">Sin coordenadas</span>
+                  {% endif %}
+                {% elif r.latitude is not none and r.longitude is not none %}
                   {{ "%.6f"|format(r.latitude) }},
                   {{ "%.6f"|format(r.longitude) }}<br>
                   <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
@@ -149,6 +179,50 @@
                   </a>
                 {% else %}
                   <span class="text-muted">Sin datos</span>
+                {% endif %}
+              </td>
+              <td class="text-end align-top">
+                <div class="d-flex flex-column align-items-end gap-1">
+                  <a href="{{ url_for('editar_registro', registro_id=r.id) }}"
+                     class="btn btn-sm btn-outline-primary">
+                    Editar
+                  </a>
+
+                  {% set ed = edicion_por_registro.get(r.id) %}
+                  {% if ed %}
+                    <span class="small text-warning fw-semibold edit-toggle"
+                          data-registro-id="{{ r.id }}"
+                          title="Editado por {{ ed.editor.username if ed.editor else 'desconocido' }} el {{ ed.edit_time }} desde {{ ed.editor_ip or 'IP desconocida' }}">
+                      Editado <span class="edit-toggle-sign" data-registro-id="{{ r.id }}">+</span>
+                    </span>
+                  {% else %}
+                    <span class="small text-muted">Sin editar</span>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Fila expandible con historial de ediciones -->
+            <tr id="edit-details-{{ r.id }}" class="edit-details-row" style="display: none;">
+              <td colspan="6" class="bg-light small">
+                {% if r.ediciones and r.ediciones.count() %}
+                  <strong>Historial de ediciones:</strong>
+                  <ul class="mb-0 mt-2">
+                    {% for e in r.ediciones %}
+                      <li>
+                        <strong>{{ e.edit_time }}</strong> –
+                        editado por {{ e.editor.username if e.editor else 'usuario desconocido' }}
+                        desde {{ e.editor_ip or 'IP desconocida' }}.<br>
+                        Valores anteriores:
+                        acción <code>{{ e.old_accion }}</code>,
+                        fecha/hora <code>{{ e.old_momento }}</code>,
+                        lat <code>{{ e.old_latitude }}</code>,
+                        lon <code>{{ e.old_longitude }}</code>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <span class="text-muted">Este registro no tiene ediciones.</span>
                 {% endif %}
               </td>
             </tr>
@@ -196,6 +270,27 @@
   document.addEventListener('DOMContentLoaded', function() {
     actualizarVisibilidadFechas();
     document.getElementById('tipo_periodo').addEventListener('change', actualizarVisibilidadFechas);
+
+    // Toggle de historial de ediciones
+    document.querySelectorAll('.edit-toggle').forEach(function(el) {
+      el.addEventListener('click', function() {
+        const registroId = this.getAttribute('data-registro-id');
+        const detailsRow = document.getElementById('edit-details-' + registroId);
+        const signSpan = document.querySelector(
+          '.edit-toggle-sign[data-registro-id="' + registroId + '"]'
+        );
+
+        if (!detailsRow || !signSpan) return;
+
+        if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
+          detailsRow.style.display = 'table-row';
+          signSpan.textContent = '-';
+        } else {
+          detailsRow.style.display = 'none';
+          signSpan.textContent = '+';
+        }
+      });
+    });
   });
 </script>
 

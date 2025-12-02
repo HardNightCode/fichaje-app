@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from functools import wraps
 from pathlib import Path
 import os
@@ -27,6 +27,10 @@ from services_fichaje import (
     calcular_horas_trabajadas,
     formatear_timedelta,
 )
+
+from typing import Optional, List
+from enum import Enum
+from collections import defaultdict
 
 # ======================================================
 # Configuración básica de Flask
@@ -110,6 +114,13 @@ class User(UserMixin, db.Model):
         backref=db.backref("users_multi", lazy="dynamic"),
     )
 
+    # NUEVO: relación muchos-a-muchos con horarios
+    schedules = db.relationship(
+        "Schedule",
+        secondary="user_schedule",
+        backref=db.backref("users", lazy="dynamic"),
+    )
+
     def set_password(self, password: str):
         self.password_hash = generate_password_hash(password)
 
@@ -140,7 +151,34 @@ class Registro(db.Model):
     longitude = db.Column(db.Float, nullable=True)
 
     usuario = db.relationship("User", backref=db.backref("registros", lazy=True))
+   
+    # NUEVO: historial de ediciones (ordenado de más reciente a más antigua)
+    ediciones = db.relationship(
+        "RegistroEdicion",
+        backref="registro",
+        lazy="dynamic",
+        order_by="RegistroEdicion.edit_time.desc()",
+        cascade="all, delete-orphan",
+    )
 
+class RegistroEdicion(db.Model):
+    __tablename__ = "registro_edicion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    registro_id = db.Column(db.Integer, db.ForeignKey("registro.id"), nullable=False)
+    editor_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    edit_time = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    editor_ip = db.Column(db.String(45))  # IPv4/IPv6
+
+    # Valores antiguos (antes de la edición)
+    old_accion = db.Column(db.String(20))
+    old_momento = db.Column(db.DateTime)
+    old_latitude = db.Column(db.Float)
+    old_longitude = db.Column(db.Float)
+
+    # Relación con el usuario que edita
+    editor = db.relationship("User", backref=db.backref("registros_editados", lazy=True))
 
 # NUEVO: tabla intermedia usuario <-> ubicación
 class UserLocation(db.Model):
@@ -150,6 +188,66 @@ class UserLocation(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=False)
 
+class BreakType(Enum):
+    NONE = "none"
+    FIXED = "fixed"
+    FLEXIBLE = "flexible"
+
+class Schedule(db.Model):
+    __tablename__ = "schedule"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+
+    # Horario principal
+    start_time = db.Column(db.Time, nullable=False)  # hora inicio jornada
+    end_time = db.Column(db.Time, nullable=False)    # hora fin jornada
+
+    # Descanso: 'none' | 'fixed' | 'flexible'
+    break_type = db.Column(db.String(20), nullable=False, default="none")
+
+    # Descanso fijo (ej. 14:00–15:00)
+    break_start = db.Column(db.Time, nullable=True)
+    break_end = db.Column(db.Time, nullable=True)
+
+    # Descanso flexible (minutos totales de descanso permitidos)
+    break_minutes = db.Column(db.Integer, nullable=True)
+
+
+class UserSchedule(db.Model):
+    """
+    Tabla intermedia usuario <-> horario.
+    De momento no añadimos más campos; si un día quieres marcar "principal",
+    se puede añadir un boolean aquí.
+    """
+    __tablename__ = "user_schedule"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    schedule_id = db.Column(db.Integer, db.ForeignKey("schedule.id"), nullable=False)
+
+
+class UserScheduleSettings(db.Model):
+    """
+    Configuración de horario por usuario:
+      - enforce_schedule: si se le fuerza a trabajar dentro de su horario
+      - margin_minutes: margen (antes / después) permitidos
+      - detect_schedule: si se intenta detectar automáticamente el horario
+        en base a la hora de fichaje (cuando tenga varios horarios asignados).
+    """
+    __tablename__ = "user_schedule_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), unique=True, nullable=False)
+
+    enforce_schedule = db.Column(db.Boolean, default=False)
+    margin_minutes = db.Column(db.Integer, default=0)
+    detect_schedule = db.Column(db.Boolean, default=False)
+
+    user = db.relationship(
+        "User",
+        backref=db.backref("schedule_settings", uselist=False),
+    )
 
 # ======================================================
 # Carga de usuario para Flask-Login
@@ -186,17 +284,46 @@ def crear_tablas():
         db.session.add(admin)
         db.session.commit()
 
-    # Asegurar que exista siempre la ubicación "Flexible"
-    flexible = Location.query.filter_by(name="Flexible").first()
-    if flexible is None:
+    # --- Gestión robusta de la ubicación "Flexible" ---
+    flexibles = Location.query.filter_by(name="Flexible").all()
+
+    if not flexibles:
+        # No existe ninguna -> la creamos
         flexible = Location(
             name="Flexible",
             latitude=0.0,
             longitude=0.0,
-            radius_meters=0.0,  # No se usará para el check
+            radius_meters=0.0,  # no se usa para radio en modo flexible
         )
         db.session.add(flexible)
         db.session.commit()
+
+    elif len(flexibles) > 1:
+        # Hay duplicadas -> nos quedamos con la primera y fusionamos relaciones
+        principal = flexibles[0]
+        sobrantes = flexibles[1:]
+
+        # Caso 1: esquema nuevo MANY-TO-MANY (User.locations_multi, backref="users_multi")
+        if hasattr(Location, "users_multi"):
+            for extra in sobrantes:
+                for u in list(extra.users_multi):
+                    if principal not in u.locations_multi:
+                        u.locations_multi.append(principal)
+                db.session.delete(extra)
+
+        # Caso 2: esquema antiguo ONE-TO-MANY (User.location, backref="users_single")
+        elif hasattr(Location, "users_single"):
+            for extra in sobrantes:
+                for u in list(extra.users_single):
+                    u.location_id = principal.id
+                db.session.delete(extra)
+
+        else:
+            for extra in sobrantes:
+                db.session.delete(extra)
+
+        db.session.commit()
+    # Si hay exactamente una "Flexible", no hacemos nada más
 
 def init_app():
     """
@@ -255,7 +382,7 @@ def generar_informe():
 @app.route("/")
 @login_required
 def index():
-    # Si es admin, ve todos los registros
+    # Si es admin, ve todos los registros; si no, solo los suyos
     if current_user.role == "admin":
         registros = Registro.query.order_by(Registro.momento.desc()).all()
     else:
@@ -265,7 +392,7 @@ def index():
             .all()
         )
 
-    # Resumen de horas para el usuario actual
+    # Resumen de horas para el usuario actual (igual que antes)
     registros_usuario = (
         Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.asc())
@@ -280,8 +407,52 @@ def index():
         for dia, td in sorted(horas_por_dia.items(), key=lambda x: x[0], reverse=True)
     ]
 
-    return render_template("index.html", registros=registros, resumen_horas=resumen_horas)
+    # Ubicaciones múltiples del usuario (usamos los helpers que ya tienes)
+    ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
+    tiene_ubicaciones = len(ubicaciones_usuario) > 0
+    tiene_flexible = usuario_tiene_flexible(current_user)
 
+    # Mapas de ubicación y jornada extra/defecto (por ahora solo ubicación “bonita”)
+    ubicacion_por_registro, extra_por_registro = construir_mapas_extra_y_ubicacion(
+        registros
+    )
+
+    # Mapa de ediciones (última edición por registro, si existe relación)
+    edicion_por_registro = {}
+    if hasattr(Registro, "ediciones"):
+        for r in registros:
+            try:
+                eds = r.ediciones
+                ultima = None
+
+                # Si es relación dinámica (Query)
+                if hasattr(eds, "order_by") and hasattr(eds, "first"):
+                    try:
+                        ultima = eds.order_by(db.desc("edit_time")).first()
+                    except Exception:
+                        ultima = eds.first()
+                else:
+                    # Lo tratamos como lista/iterable
+                    eds_list = list(eds)
+                    if eds_list:
+                        ultima = eds_list[-1]
+
+                if ultima:
+                    edicion_por_registro[r.id] = ultima
+            except Exception:
+                continue
+
+    return render_template(
+        "index.html",
+        registros=registros,
+        resumen_horas=resumen_horas,
+        ubicaciones_usuario=ubicaciones_usuario,
+        tiene_ubicaciones=tiene_ubicaciones,
+        tiene_flexible=tiene_flexible,
+        ubicacion_por_registro=ubicacion_por_registro,
+        extra_por_registro=extra_por_registro,
+        edicion_por_registro=edicion_por_registro,
+    )
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
 @admin_required
@@ -294,6 +465,11 @@ def admin_ubicaciones():
 
         if not name or not lat or not lon or not radius:
             flash("Todos los campos son obligatorios.", "error")
+            return redirect(url_for("admin_ubicaciones"))
+
+        # Impedimos crear manualmente otra ubicación llamada "Flexible"
+        if name.lower() == "flexible":
+            flash("La ubicación 'Flexible' es gestionada por el sistema y no puede crearse ni modificarse desde aquí.", "error")
             return redirect(url_for("admin_ubicaciones"))
 
         # Aceptar coma o punto
@@ -320,14 +496,24 @@ def admin_ubicaciones():
         flash("Ubicación creada correctamente.", "success")
         return redirect(url_for("admin_ubicaciones"))
 
-    ubicaciones = Location.query.order_by(Location.name).all()
+    # No mostramos la ubicación especial "Flexible" en el listado
+    ubicaciones = (
+        Location.query
+        .filter(Location.name != "Flexible")
+        .order_by(Location.name)
+        .all()
+    )
     return render_template("admin_ubicaciones.html", ubicaciones=ubicaciones)
-
 
 @app.route("/admin/ubicaciones/<int:loc_id>/editar", methods=["GET", "POST"])
 @admin_required
 def editar_ubicacion(loc_id):
     loc = Location.query.get_or_404(loc_id)
+
+    # La ubicación "Flexible" es especial: no se puede editar
+    if (loc.name or "").lower() == "flexible":
+        flash("La ubicación 'Flexible' es especial del sistema y no puede editarse.", "error")
+        return redirect(url_for("admin_ubicaciones"))
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -338,6 +524,11 @@ def editar_ubicacion(loc_id):
         if not name or not lat or not lon or not radius:
             flash("Todos los campos son obligatorios.", "error")
             return redirect(url_for("editar_ubicacion", loc_id=loc.id))
+
+        # Impedimos crear manualmente otra ubicación llamada "Flexible"
+        if name.lower() == "flexible":
+            flash("La ubicación 'Flexible' es gestionada por el sistema y no puede crearse ni modificarse desde aquí.", "error")
+            return redirect(url_for("admin_ubicaciones"))
 
         lat = lat.replace(",", ".")
         lon = lon.replace(",", ".")
@@ -363,6 +554,11 @@ def editar_ubicacion(loc_id):
 @admin_required
 def eliminar_ubicacion(loc_id):
     loc = Location.query.get_or_404(loc_id)
+
+    # La ubicación "Flexible" es especial: no se puede eliminar
+    if (loc.name or "").lower() == "flexible":
+        flash("La ubicación 'Flexible' es especial del sistema y no puede eliminarse.", "error")
+        return redirect(url_for("admin_ubicaciones"))
 
     # Comprobar si hay usuarios usando esta ubicación
     usuarios_con_loc = User.query.filter_by(location_id=loc.id).first()
@@ -434,36 +630,313 @@ def admin_usuarios():
         user_locations_map=user_locations_map,
     )
 
+@app.route("/admin/horarios", methods=["GET", "POST"])
+@admin_required
+def admin_horarios():
+    """
+    Página para crear y listar horarios.
+    - Crea nuevos horarios con:
+        nombre, inicio, fin, tipo de descanso, parámetros de descanso.
+    """
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        start_time_str = request.form.get("start_time", "").strip()
+        end_time_str = request.form.get("end_time", "").strip()
+        break_type = request.form.get("break_type", "none")
+
+        break_start_str = request.form.get("break_start", "").strip()
+        break_end_str = request.form.get("break_end", "").strip()
+        break_minutes_str = request.form.get("break_minutes", "").strip()
+
+        if not name or not start_time_str or not end_time_str:
+            flash("Nombre, inicio y fin de jornada son obligatorios.", "error")
+            return redirect(url_for("admin_horarios"))
+
+        try:
+            start_time = datetime.strptime(start_time_str, "%H:%M").time()
+            end_time = datetime.strptime(end_time_str, "%H:%M").time()
+        except ValueError:
+            flash("Las horas de inicio y fin deben tener formato HH:MM.", "error")
+            return redirect(url_for("admin_horarios"))
+
+        break_start = None
+        break_end = None
+        break_minutes = None
+
+        if break_type == "fixed":
+            if not break_start_str or not break_end_str:
+                flash("Para descanso fijo debes indicar inicio y fin de descanso.", "error")
+                return redirect(url_for("admin_horarios"))
+            try:
+                break_start = datetime.strptime(break_start_str, "%H:%M").time()
+                break_end = datetime.strptime(break_end_str, "%H:%M").time()
+            except ValueError:
+                flash("Las horas de descanso deben tener formato HH:MM.", "error")
+                return redirect(url_for("admin_horarios"))
+
+        elif break_type == "flexible":
+            if not break_minutes_str:
+                flash("Para descanso flexible debes indicar los minutos de descanso.", "error")
+                return redirect(url_for("admin_horarios"))
+            try:
+                break_minutes = int(break_minutes_str)
+            except ValueError:
+                flash("Los minutos de descanso deben ser numéricos.", "error")
+                return redirect(url_for("admin_horarios"))
+
+        horario = Schedule(
+            name=name,
+            start_time=start_time,
+            end_time=end_time,
+            break_type=break_type,
+            break_start=break_start,
+            break_end=break_end,
+            break_minutes=break_minutes,
+        )
+        db.session.add(horario)
+        db.session.commit()
+        flash("Horario creado correctamente.", "success")
+        return redirect(url_for("admin_horarios"))
+
+    # GET: listar todos los horarios
+    horarios = Schedule.query.order_by(Schedule.name).all()
+    return render_template("admin_horarios.html", horarios=horarios)
+
+@app.route("/admin/usuarios/fichas")
+@admin_required
+def admin_usuarios_fichas():
+    """
+    Lista de usuarios, con enlace a su ficha de configuración
+    (ubicaciones + horarios).
+    """
+    usuarios = User.query.order_by(User.username).all()
+    return render_template("admin_usuarios_fichas.html", usuarios=usuarios)
+
+@app.route("/admin/usuarios/<int:user_id>/ficha", methods=["GET", "POST"])
+@admin_required
+def admin_usuario_ficha(user_id):
+    """
+    Ficha individual de usuario:
+      - Muestra ubicaciones asignadas (solo lectura, por ahora).
+      - Permite asignar horarios.
+      - Permite configurar:
+          * Forzar horario (sí/no) + margen
+          * Detectar horario automáticamente (sí/no)
+    """
+    user = User.query.get_or_404(user_id)
+    horarios = Schedule.query.order_by(Schedule.name).all()
+    settings = get_or_create_schedule_settings(user)
+
+    if request.method == "POST":
+        # Horarios seleccionados (pueden ser varios)
+        schedule_ids = request.form.getlist("schedule_ids")
+
+        # Limpia horarios anteriores
+        user.schedules.clear()
+
+        for sid in schedule_ids:
+            try:
+                sid_int = int(sid)
+            except ValueError:
+                continue
+            h = Schedule.query.get(sid_int)
+            if h and h not in user.schedules:
+                user.schedules.append(h)
+
+        # Configuración de horario
+        enforce_value = request.form.get("enforce_schedule", "no")
+        settings.enforce_schedule = (enforce_value == "si")
+
+        margin_str = request.form.get("margin_minutes", "").strip() or "0"
+        try:
+            settings.margin_minutes = max(0, int(margin_str))
+        except ValueError:
+            settings.margin_minutes = 0
+
+        settings.detect_schedule = (request.form.get("detect_schedule") == "on")
+
+        db.session.commit()
+        flash("Ficha de usuario actualizada correctamente.", "success")
+        return redirect(url_for("admin_usuario_ficha", user_id=user.id))
+
+    # GET: preparar datos
+    ubicaciones_usuario = obtener_ubicaciones_usuario(user)
+    horarios_usuario = list(user.schedules)
+
+    return render_template(
+        "admin_usuario_ficha.html",
+        usuario=user,
+        ubicaciones_usuario=ubicaciones_usuario,
+        horarios=horarios,
+        horarios_usuario=horarios_usuario,
+        settings=settings,
+    )
+
+# ======================================================
+# Helpers de ubicaciones (soporta esquema antiguo y nuevo)
+# ======================================================
+
 def obtener_ubicaciones_usuario(user):
     """
-    Devuelve la lista de ubicaciones permitidas para el usuario,
-    combinando la ubicación única antigua (location) y las múltiples (locations_multi).
-    No duplica ubicaciones.
+    Devuelve una lista de Location asociadas al usuario.
+    Soporta:
+      - Esquema nuevo: user.locations_multi (many-to-many)
+      - Esquema antiguo: user.location (FK simple)
     """
-    ubicaciones = []
+    locs = []
 
-    # Ubicaciones múltiples (nueva relación)
-    if user.locations_multi:
-        ubicaciones.extend(user.locations_multi)
+    # Esquema nuevo many-to-many
+    if hasattr(user, "locations_multi") and user.locations_multi:
+        locs = list(user.locations_multi)
 
-    # Ubicación única antigua (para compatibilidad) si no está ya en la lista
-    if user.location is not None and user.location not in ubicaciones:
-        ubicaciones.append(user.location)
+    # Esquema antiguo one-to-many (location_id + relationship location)
+    elif getattr(user, "location", None) is not None:
+        locs = [user.location]
 
-    return ubicaciones
+    return locs
+
+def usuario_tiene_flexible(user) -> bool:
+    """
+    Devuelve True si el usuario tiene alguna ubicación llamada 'Flexible'
+    (ignorando mayúsculas/minúsculas).
+    """
+    for loc in obtener_ubicaciones_usuario(user):
+        if (loc.name or "").lower() == "flexible":
+            return True
+    return False
+
+def get_or_create_schedule_settings(user):
+    """
+    Devuelve el objeto UserScheduleSettings para el usuario.
+    Si no existe, lo crea con valores por defecto.
+    """
+    settings = getattr(user, "schedule_settings", None)
+    if settings is None:
+        settings = UserScheduleSettings(user_id=user.id)
+        db.session.add(settings)
+        db.session.commit()
+    return settings
+
+def determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones, margen_extra_m=10.0):
+    """
+    Dado un par (lat, lon) y una lista de Location,
+    devuelve la Location cuyo área (radio_meters) contenga ese punto.
+
+    - Usa el radio configurado de cada ubicación (radius_meters).
+    - margen_extra_m permite añadir unos metros de tolerancia para el ruido del GPS.
+    - Si no coincide con ninguna, devuelve None.
+    """
+    if lat is None or lon is None:
+        return None
+
+    for loc in ubicaciones:
+        # radio_base puede ser 0 si por error se dejó a 0
+        radio_base = loc.radius_meters or 0.0
+        radio_efectivo = radio_base + margen_extra_m
+
+        # Si por lo que sea el radio total es <= 0, no tiene sentido usar esta ubicación
+        if radio_efectivo <= 0:
+            continue
+
+        if is_within_radius(
+            lat,
+            lon,
+            loc.latitude,
+            loc.longitude,
+            radio_efectivo,
+        ):
+            # Primer match que encontremos lo devolvemos.
+            # Si quisieras ser más fino, aquí podrías buscar la más cercana,
+            # pero normalmente con el primer match es suficiente.
+            return loc
+
+    return None
+
+def obtener_etiqueta_ubicacion_para_registro(registro, ubicaciones):
+    """
+    Devuelve la etiqueta de ubicación para un registro:
+
+    - Si las coordenadas caen dentro del radio (con margen) de alguna Location,
+      devuelve el nombre de esa ubicación.
+    - Si no coinciden con ninguna, devuelve 'lat, lon' formateadas.
+    - Si no hay coordenadas, devuelve cadena vacía.
+    """
+    lat = registro.latitude
+    lon = registro.longitude
+
+    if lat is None or lon is None:
+        return ""
+
+    loc = determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones)
+
+    if loc:
+        return loc.name
+
+    # Sin match: devolvemos coordenadas “peladas”
+    return f"{lat:.6f}, {lon:.6f}"
+
+def construir_mapas_extra_y_ubicacion(registros):
+    """
+    Construye:
+      - ubicacion_por_registro: {registro.id: etiqueta_ubicacion}
+      - extra_por_registro: {registro.id: info_extra}, de momento vacío
+    La etiqueta de ubicación será:
+      - nombre de la Location si las coordenadas caen dentro de su radio
+      - "lat, lon" si no coincide con ninguna ubicación
+      - "Sin datos" si no hay coordenadas
+    """
+    # Todas las ubicaciones definidas, menos "Flexible"
+    ubicaciones_definidas = Location.query.filter(Location.name != "Flexible").all()
+
+    ubicacion_por_registro = {}
+    extra_por_registro = {}  # por ahora no calculamos horas extra/defecto aquí
+
+    for r in registros:
+        etiqueta = "Sin datos"
+
+        if r.latitude is not None and r.longitude is not None:
+            # ¿Cae dentro de alguna ubicación configurada (con su radio)?
+            loc_match = determinar_ubicacion_por_coordenadas(
+                r.latitude,
+                r.longitude,
+                ubicaciones_definidas,
+            )
+            if loc_match:
+                etiqueta = loc_match.name
+            else:
+                # No coincide con ninguna -> mostramos coordenadas
+                try:
+                    etiqueta = f"{r.latitude:.6f}, {r.longitude:.6f}"
+                except Exception:
+                    etiqueta = f"{r.latitude}, {r.longitude}"
+
+        ubicacion_por_registro[r.id] = etiqueta
+
+        # Cuando tengamos horarios implementados, aquí rellenaremos extra_por_registro[r.id]
+        # con algo del estilo:
+        # extra_por_registro[r.id] = {
+        #     "extra": "00:30",
+        #     "defecto": "00:10",
+        #     "schedule_name": "Turno mañana"
+        # }
+
+    return ubicacion_por_registro, extra_por_registro
+
 
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():
-    # Obtener todas las ubicaciones asignadas al usuario
+    # Obtenemos las ubicaciones (esquema nuevo o antiguo)
     ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
 
     if not ubicaciones_usuario:
         flash(
-            "No tienes ninguna ubicación asignada. Contacta con el administrador.",
+            "No tienes una ubicación asignada. Contacta con el administrador.",
             "error",
         )
         return redirect(url_for("index"))
+
+    flexible_activo = usuario_tiene_flexible(current_user)
 
     accion = request.form.get("accion")
     if accion not in ("entrada", "salida"):
@@ -481,6 +954,7 @@ def fichar():
         flash(msg_error, "error")
         return redirect(url_for("index"))
 
+    # Coordenadas
     lat_str = request.form.get("lat")
     lon_str = request.form.get("lon")
 
@@ -498,18 +972,15 @@ def fichar():
         flash("Coordenadas de ubicación inválidas.", "error")
         return redirect(url_for("index"))
 
-    # ¿Tiene ubicación "Flexible"?
-    tiene_flexible = any(
-        loc.name == "Flexible" for loc in ubicaciones_usuario
-    )
+    # Si NO está en modo Flexible, comprobamos radios
+    if not flexible_activo:
+        autorizado = False
 
-    permitido = False
-    if tiene_flexible:
-        # Cualquier ubicación es válida
-        permitido = True
-    else:
-        # Debe estar dentro del radio de AL MENOS UNA ubicación asignada
         for loc in ubicaciones_usuario:
+            # Por si coexistieran Flexible + fijas, ignoramos Flexible en el cálculo de radios
+            if loc.name.lower() == "flexible":
+                continue
+
             if is_within_radius(
                 lat_user,
                 lon_user,
@@ -517,15 +988,16 @@ def fichar():
                 loc.longitude,
                 loc.radius_meters,
             ):
-                permitido = True
+                autorizado = True
                 break
 
-    if not permitido:
-        flash(
-            "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
-            "error",
-        )
-        return redirect(url_for("index"))
+        if not autorizado:
+            flash(
+                "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
+                "error",
+            )
+            return redirect(url_for("index"))
+    # Si flexible_activo == True -> no hay restricción de radio; solo guardamos las coords.
 
     registro = Registro(
         usuario_id=current_user.id,
@@ -646,6 +1118,12 @@ from flask import Response  # Asegúrate de tener esto al principio del archivo
 @admin_required
 def admin_registros():
     usuarios = User.query.order_by(User.username).all()
+    # Todas las ubicaciones configuradas, excepto "Flexible"
+    ubicaciones_definidas = (
+        Location.query.filter(Location.name != "Flexible")
+        .order_by(Location.name)
+        .all()
+    )
 
     # Valores por defecto (GET)
     usuario_seleccionado = "all"
@@ -655,6 +1133,11 @@ def admin_registros():
     fecha_semana = ""
     mes = None   # entero o None
     registros = []
+    ubicacion_filtro = "all"
+
+    # Mapas para la vista / exportaciones
+    ubicacion_por_registro = {}
+    extra_por_registro = {}
 
     if request.method == "POST":
         usuario_seleccionado = request.form.get("usuario_id", "all")
@@ -664,8 +1147,9 @@ def admin_registros():
         fecha_semana = request.form.get("fecha_semana", "")
         mes_str = request.form.get("mes", "")
         accion = request.form.get("accion", "filtrar")
+        ubicacion_filtro = request.form.get("ubicacion_filtro", "all")
 
-        # mes_str -> mes (int o None) para que la plantilla pueda comparar con números
+        # mes_str -> mes (int o None)
         mes = int(mes_str) if mes_str else None
 
         query = Registro.query.join(User).order_by(Registro.momento.desc())
@@ -683,7 +1167,9 @@ def admin_registros():
             if fecha_desde:
                 try:
                     dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
-                    dt_desde = dt_desde.replace(hour=0, minute=0, second=0, microsecond=0)
+                    dt_desde = dt_desde.replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
                     query = query.filter(Registro.momento >= dt_desde)
                 except ValueError:
                     flash("Fecha 'desde' no válida.", "error")
@@ -691,7 +1177,12 @@ def admin_registros():
             if fecha_hasta:
                 try:
                     dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
-                    dt_hasta = dt_hasta.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    dt_hasta = dt_hasta.replace(
+                        hour=23,
+                        minute=59,
+                        second=59,
+                        microsecond=999999,
+                    )
                     query = query.filter(Registro.momento <= dt_hasta)
                 except ValueError:
                     flash("Fecha 'hasta' no válida.", "error")
@@ -700,8 +1191,12 @@ def admin_registros():
             if fecha_semana:
                 try:
                     start_of_week = datetime.strptime(fecha_semana, "%Y-%m-%d")
-                    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-                    end_of_week = start_of_week + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                    start_of_week = start_of_week.replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    end_of_week = start_of_week + timedelta(
+                        days=6, hours=23, minutes=59, seconds=59
+                    )
                     query = query.filter(
                         Registro.momento >= start_of_week,
                         Registro.momento <= end_of_week,
@@ -734,30 +1229,105 @@ def admin_registros():
             # No se filtra por fechas: se muestran todos los registros que cumplan el filtro de usuario
             pass
 
-        # Ejecutamos la consulta una sola vez
+        # Ejecutamos la consulta una sola vez (usuario + periodo + tiempo)
         registros = query.all()
+
+        # ---- Filtro por ubicación ----
+        # ubicacion_filtro:
+        #  - "all"      -> no se filtra por ubicación
+        #  - "flexible" -> registros cuyas coordenadas NO caen dentro de ninguna ubicación definida
+        #  - <id>       -> registros cuyas coordenadas caen dentro del radio de esa ubicación
+        if ubicacion_filtro != "all":
+            registros_filtrados = []
+            if ubicacion_filtro == "flexible":
+                # Registros fuera de cualquier ubicación conocida
+                for r in registros:
+                    loc_match = determinar_ubicacion_por_coordenadas(
+                        r.latitude,
+                        r.longitude,
+                        ubicaciones_definidas,
+                    )
+                    if loc_match is None:
+                        registros_filtrados.append(r)
+            else:
+                # Filtro por una ubicación concreta
+                try:
+                    loc_id = int(ubicacion_filtro)
+                    loc_sel = Location.query.get(loc_id)
+                except ValueError:
+                    loc_sel = None
+
+                if loc_sel:
+                    for r in registros:
+                        if r.latitude is None or r.longitude is None:
+                            continue
+                        if is_within_radius(
+                            r.latitude,
+                            r.longitude,
+                            loc_sel.latitude,
+                            loc_sel.longitude,
+                            loc_sel.radius_meters,
+                        ):
+                            registros_filtrados.append(r)
+
+            registros = registros_filtrados
+
+        # ---- Mapas de ubicación y horas extra/defecto ----
+        ubicacion_por_registro, extra_por_registro = construir_mapas_extra_y_ubicacion(
+            registros
+        )
 
         # ---- Exportaciones ----
         if accion == "csv":
-            return generar_csv(registros)
+            return generar_csv(registros, ubicacion_por_registro, extra_por_registro)
         if accion == "pdf":
-            return generar_pdf(registros, tipo_periodo)
+            return generar_pdf(
+                registros, tipo_periodo, ubicacion_por_registro, extra_por_registro
+            )
 
     else:
-        # GET: mes None, para que el select no fuerce nada especial
+        # GET: mes None
         mes = None
+        registros = []
+        ubicacion_por_registro = {}
+        extra_por_registro = {}
 
     # ---- Resumen de horas trabajadas por usuario en el filtro actual ----
     horas_por_usuario = {}
     for usuario in usuarios:
-        regs_usuario = [r for r in registros if r.usuario_id == usuario.id]
+        regs_usuario = [reg for reg in registros if reg.usuario_id == usuario.id]
         if not regs_usuario:
             continue
-        regs_usuario_ordenados = sorted(regs_usuario, key=lambda r: r.momento)
+        regs_usuario_ordenados = sorted(regs_usuario, key=lambda reg: reg.momento)
         horas_dia = calcular_horas_trabajadas(regs_usuario_ordenados)
         total = sum(horas_dia.values(), start=timedelta())
         if total.total_seconds() > 0:
             horas_por_usuario[usuario.username] = formatear_timedelta(total)
+
+    # ---- Mapa de ediciones (última edición por registro, si existe relación) ----
+    edicion_por_registro = {}
+    if hasattr(Registro, "ediciones"):
+        for r in registros:
+            try:
+                eds = r.ediciones
+                ultima = None
+
+                # Si es relación dinámica (query)
+                if hasattr(eds, "order_by") and hasattr(eds, "first"):
+                    try:
+                        ultima = eds.order_by(db.desc("edit_time")).first()
+                    except Exception:
+                        ultima = eds.first()
+                else:
+                    # Lo tratamos como iterable/lista
+                    eds_list = list(eds)
+                    if eds_list:
+                        ultima = eds_list[-1]
+
+                if ultima:
+                    edicion_por_registro[r.id] = ultima
+            except Exception:
+                continue
 
     return render_template(
         "admin_registros.html",
@@ -770,24 +1340,121 @@ def admin_registros():
         tipo_periodo=tipo_periodo,
         horas_por_usuario=horas_por_usuario,
         mes=mes,
+        ubicaciones_definidas=ubicaciones_definidas,
+        ubicacion_filtro=ubicacion_filtro,
+        ubicacion_por_registro=ubicacion_por_registro,
+        extra_por_registro=extra_por_registro,
+        edicion_por_registro=edicion_por_registro,
     )
 
+@app.route("/admin/registros/<int:registro_id>/editar", methods=["GET", "POST"])
+@admin_required
+def editar_registro(registro_id):
+    registro = Registro.query.get_or_404(registro_id)
+    usuarios = User.query.order_by(User.username).all()
 
-def generar_csv(registros):
+    if request.method == "POST":
+        # Datos del formulario
+        usuario_id_str = request.form.get("usuario_id")
+        nueva_accion = request.form.get("accion")
+        momento_str = request.form.get("momento")
+        lat_str = request.form.get("latitude", "").strip()
+        lon_str = request.form.get("longitude", "").strip()
+
+        # Validar usuario
+        try:
+            nuevo_usuario_id = int(usuario_id_str)
+            usuario_nuevo = User.query.get(nuevo_usuario_id)
+            if usuario_nuevo is None:
+                raise ValueError
+        except (TypeError, ValueError):
+            flash("Usuario no válido.", "error")
+            return redirect(url_for("editar_registro", registro_id=registro.id))
+
+        # Validar acción
+        if nueva_accion not in ("entrada", "salida"):
+            flash("Acción no válida.", "error")
+            return redirect(url_for("editar_registro", registro_id=registro.id))
+
+        # Validar fecha/hora (input type=datetime-local -> YYYY-MM-DDTHH:MM)
+        try:
+            nuevo_momento = datetime.strptime(momento_str, "%Y-%m-%dT%H:%M")
+        except (TypeError, ValueError):
+            flash("Fecha y hora no válidas.", "error")
+            return redirect(url_for("editar_registro", registro_id=registro.id))
+
+        # Validar lat/lon (permitimos vacío -> None)
+        try:
+            nueva_lat = float(lat_str.replace(",", ".")) if lat_str else None
+            nueva_lon = float(lon_str.replace(",", ".")) if lon_str else None
+        except ValueError:
+            flash("Latitud/longitud no válidas.", "error")
+            return redirect(url_for("editar_registro", registro_id=registro.id))
+
+        # Crear registro de auditoría con los valores antiguos
+        auditoria = RegistroEdicion(
+            registro_id=registro.id,
+            editor_id=current_user.id,
+            edit_time=datetime.utcnow(),
+            editor_ip=request.remote_addr,
+            old_accion=registro.accion,
+            old_momento=registro.momento,
+            old_latitude=registro.latitude,
+            old_longitude=registro.longitude,
+        )
+        db.session.add(auditoria)
+
+        # Aplicar cambios al registro principal
+        registro.usuario_id = nuevo_usuario_id
+        registro.accion = nueva_accion
+        registro.momento = nuevo_momento
+        registro.latitude = nueva_lat
+        registro.longitude = nueva_lon
+
+        db.session.commit()
+        flash("Registro actualizado correctamente.", "success")
+        return redirect(url_for("admin_registros"))
+
+    # GET: preparar valor para el input datetime-local
+    momento_val = registro.momento.strftime("%Y-%m-%dT%H:%M") if registro.momento else ""
+
+    return render_template(
+        "admin_registro_editar.html",
+        registro=registro,
+        usuarios=usuarios,
+        momento_val=momento_val,
+    )
+
+def generar_csv(registros, ubicacion_por_registro, extra_por_registro):
     """Generar un archivo CSV con los registros filtrados actuales."""
     output = StringIO()
     writer = csv.writer(output, delimiter=";")
 
     # Cabecera
-    writer.writerow(["Usuario", "Acción", "Fecha y hora (UTC)", "Latitud", "Longitud"])
+    writer.writerow([
+        "Usuario",
+        "Acción",
+        "Fecha y hora (UTC)",
+        "Latitud",
+        "Longitud",
+        "Ubicación",
+        "Horas extra",
+        "Horas en defecto",
+    ])
 
     for r in registros:
+        label = ubicacion_por_registro.get(r.id, "")
+        info_extra = extra_por_registro.get(r.id, {})
+
         writer.writerow([
             r.usuario.username if r.usuario else "",
             r.accion,
             r.momento.strftime("%Y-%m-%d %H:%M:%S"),
             f"{r.latitude:.6f}" if r.latitude is not None else "",
             f"{r.longitude:.6f}" if r.longitude is not None else "",
+            label,
+            info_extra.get("extra") or "",
+            info_extra.get("defecto") or "",
         ])
 
     csv_data = output.getvalue().encode("utf-8-sig")
@@ -800,11 +1467,10 @@ def generar_csv(registros):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-
-def generar_pdf(registros, tipo_periodo: str):
+def generar_pdf(registros, tipo_periodo: str, ubicacion_por_registro, extra_por_registro):
     """
-    Genera un PDF usando la plantilla EXISTENTE informe_pdf.html
-    para evitar el error TemplateNotFound.
+    Genera un PDF usando la plantilla informe_pdf.html,
+    incluyendo ubicación amigable y horas extra/defecto.
     """
     resumen_horas = calcular_horas_trabajadas(registros)
 
@@ -813,8 +1479,9 @@ def generar_pdf(registros, tipo_periodo: str):
         registros=registros,
         resumen_horas=resumen_horas,
         tipo_periodo=tipo_periodo,
+        ubicacion_por_registro=ubicacion_por_registro,
+        extra_por_registro=extra_por_registro,
     )
-    # Usamos flask_weasyprint.render_pdf que ya tienes importado
     return render_pdf(HTML(string=html))
 
 # ======================================================

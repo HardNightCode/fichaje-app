@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Editar registro{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Editar registro #{{ registro.id }}</h1>
+
+<div class="card">
+  <div class="card-header">
+    Datos del registro
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('editar_registro', registro_id=registro.id) }}">
+
+      <!-- Usuario -->
+      <div class="mb-3">
+        <label class="form-label">Usuario</label>
+        <select name="usuario_id" class="form-select" required>
+          {% for u in usuarios %}
+            <option value="{{ u.id }}"
+              {% if u.id == registro.usuario_id %}selected{% endif %}>
+              {{ u.username }} ({{ u.role }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- Acción -->
+      <div class="mb-3">
+        <label class="form-label">Acción</label>
+        <select name="accion" class="form-select" required>
+          <option value="entrada" {% if registro.accion == 'entrada' %}selected{% endif %}>Entrada</option>
+          <option value="salida" {% if registro.accion == 'salida' %}selected{% endif %}>Salida</option>
+        </select>
+      </div>
+
+      <!-- Fecha y hora -->
+      <div class="mb-3">
+        <label class="form-label">Fecha y hora (UTC)</label>
+        <input type="datetime-local"
+               name="momento"
+               class="form-control"
+               value="{{ momento_val }}"
+               required>
+        <div class="form-text">
+          Se guarda en UTC, igual que el resto de registros.
+        </div>
+      </div>
+
+      <!-- Latitud -->
+      <div class="mb-3">
+        <label class="form-label">Latitud</label>
+        <input type="text"
+               name="latitude"
+               class="form-control"
+               value="{% if registro.latitude is not none %}{{ '%.6f'|format(registro.latitude) }}{% endif %}">
+      </div>
+
+      <!-- Longitud -->
+      <div class="mb-3">
+        <label class="form-label">Longitud</label>
+        <input type="text"
+               name="longitude"
+               class="form-control"
+               value="{% if registro.longitude is not none %}{{ '%.6f'|format(registro.longitude) }}{% endif %}">
+      </div>
+
+      <div class="d-flex justify-content-between mt-4">
+        <a href="{{ url_for('admin_registros') }}" class="btn btn-outline-secondary">
+          Volver
+        </a>
+        <button type="submit" class="btn btn-primary">
+          Guardar cambios
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

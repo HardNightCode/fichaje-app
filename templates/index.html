@@ -13,18 +13,37 @@
         Fichar
       </div>
       <div class="card-body">
-        {% if current_user.location %}
-          <p class="mb-2">
-            Ubicación requerida:
-            <strong>{{ current_user.location.name }}</strong><br>
-            <small class="text-muted">
-              Radio permitido: {{ current_user.location.radius_meters }} m
-            </small>
-          </p>
-        {% else %}
-          <p class="text-danger">
+        {% if not tiene_ubicaciones %}
+          <p class="text-danger mb-2">
             No tienes ninguna ubicación asignada. Pide al administrador que te asigne una.
           </p>
+        {% else %}
+          {% if tiene_flexible %}
+            <p class="mb-2">
+              Ubicación requerida:
+              <strong>Flexible</strong><br>
+              <small class="text-muted">
+                Puedes fichar desde cualquier sitio. Además, se respetan también las ubicaciones fijas que tengas asignadas.
+              </small>
+            </p>
+          {% else %}
+            <p class="mb-2">
+              Ubicaciones válidas para fichar:
+            </p>
+            <ul class="mb-2">
+              {% for loc in ubicaciones_usuario %}
+                <li>
+                  <strong>{{ loc.name }}</strong>
+                  <small class="text-muted">
+                    (radio {{ loc.radius_meters }} m)
+                  </small>
+                </li>
+              {% endfor %}
+            </ul>
+            <small class="text-muted d-block mb-2">
+              Podrás fichar si estás dentro del radio de cualquiera de las ubicaciones anteriores.
+            </small>
+          {% endif %}
         {% endif %}
 
         <form action="{{ url_for('fichar') }}" method="post"
@@ -42,7 +61,7 @@
 
           <button type="submit" id="btn-fichar"
                   class="btn btn-primary w-100"
-                  {% if not current_user.location %}disabled{% endif %}>
+                  {% if not tiene_ubicaciones %}disabled{% endif %}>
             Fichar
           </button>
 
@@ -53,7 +72,7 @@
       </div>
     </div>
 
-    <!-- NUEVO: CARD RESUMEN HORAS -->
+    <!-- CARD RESUMEN HORAS -->
     <div class="card mb-4">
       <div class="card-header">
         Resumen de horas (últimos días)
@@ -86,17 +105,18 @@
       <div class="card-body p-0">
         <div class="table-responsive">
           <table class="table table-striped table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>Usuario</th>
-                <th>Acción</th>
-                <th>Fecha y hora (UTC)</th>
-                <th>Ubicación</th>
-              </tr>
-            </thead>
+          <thead class="table-light">
+            <tr>
+              <th>Usuario</th>
+              <th>Acción</th>
+              <th>Fecha y hora (UTC)</th>
+              <th>Ubicación</th>
+              <th class="text-end">Jornada</th>
+            </tr>
+          </thead>
             <tbody>
             {% for r in registros %}
-              <tr>
+              <tr class="registro-row" data-registro-id="{{ r.id }}">
                 <td>{{ r.usuario.username }}</td>
                 <td>
                   {% if r.accion == 'entrada' %}
@@ -107,7 +127,18 @@
                 </td>
                 <td>{{ r.momento }}</td>
                 <td>
-                  {% if r.latitude is not none and r.longitude is not none %}
+                  {% set loc_reg = ubicacion_por_registro.get(r.id) %}
+                  {% if loc_reg %}
+                    <strong>{{ loc_reg }}</strong><br>
+                    {% if r.latitude is not none and r.longitude is not none %}
+                      <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
+                         class="link-primary" target="_blank">
+                        Ver en Google Maps
+                      </a>
+                    {% else %}
+                      <span class="text-muted">Sin coordenadas</span>
+                    {% endif %}
+                  {% elif r.latitude is not none and r.longitude is not none %}
                     {{ "%.6f"|format(r.latitude) }},
                     {{ "%.6f"|format(r.longitude) }}<br>
                     <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
@@ -118,11 +149,56 @@
                     <span class="text-muted">Sin datos</span>
                   {% endif %}
                 </td>
+                <td class="text-end align-top">
+                  <div class="d-flex flex-column align-items-end gap-1">
+                    {% if current_user.role == 'admin' %}
+                      <a href="{{ url_for('editar_registro', registro_id=r.id) }}"
+                         class="btn btn-sm btn-outline-primary">
+                        Editar
+                      </a>
+                    {% endif %}
+
+                    {% set ed = edicion_por_registro.get(r.id) %}
+                    {% if ed %}
+                      <span class="small text-warning fw-semibold edit-toggle"
+                            data-registro-id="{{ r.id }}"
+                            title="Editado por {{ ed.editor.username if ed.editor else 'desconocido' }} el {{ ed.edit_time }} desde {{ ed.editor_ip or 'IP desconocida' }}">
+                        Editado <span class="edit-toggle-sign" data-registro-id="{{ r.id }}">+</span>
+                      </span>
+                    {% else %}
+                      <span class="small text-muted">Sin editar</span>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+
+              <tr id="edit-details-{{ r.id }}" class="edit-details-row" style="display: none;">
+                <td colspan="5" class="bg-light small">
+                  {% if r.ediciones and r.ediciones.count() %}
+                    <strong>Historial de ediciones:</strong>
+                    <ul class="mb-0 mt-2">
+                      {% for e in r.ediciones %}
+                        <li>
+                          <strong>{{ e.edit_time }}</strong> –
+                          editado por {{ e.editor.username if e.editor else 'usuario desconocido' }}
+                          desde {{ e.editor_ip or 'IP desconocida' }}.<br>
+                          Valores anteriores:
+                          acción <code>{{ e.old_accion }}</code>,
+                          fecha/hora <code>{{ e.old_momento }}</code>,
+                          lat <code>{{ e.old_latitude }}</code>,
+                          lon <code>{{ e.old_longitude }}</code>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <span class="text-muted">Este registro no tiene ediciones.</span>
+                  {% endif %}
+                </td>
               </tr>
             {% endfor %}
             {% if registros|length == 0 %}
               <tr>
-                <td colspan="4" class="text-center text-muted py-3">
+                <td colspan="5" class="text-center text-muted py-3">
                   No hay registros todavía.
                 </td>
               </tr>
@@ -175,5 +251,28 @@ function validarUbicacion(event) {
 }
 
 window.addEventListener("load", obtenerUbicacion);
+
+// Toggle historial de ediciones
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.edit-toggle').forEach(function(el) {
+    el.addEventListener('click', function() {
+      const registroId = this.getAttribute('data-registro-id');
+      const detailsRow = document.getElementById('edit-details-' + registroId);
+      const signSpan = document.querySelector(
+        '.edit-toggle-sign[data-registro-id="' + registroId + '"]'
+      );
+
+      if (!detailsRow || !signSpan) return;
+
+      if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
+        detailsRow.style.display = 'table-row';
+        signSpan.textContent = '-';
+      } else {
+        detailsRow.style.display = 'none';
+        signSpan.textContent = '+';
+      }
+    });
+  });
+});
 </script>
 {% endblock %}

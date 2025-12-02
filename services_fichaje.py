@@ -1,6 +1,5 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, Tuple, Optional
-
 
 def validar_secuencia_fichaje(accion: str, ultimo_registro) -> Tuple[bool, str]:
     """
@@ -61,3 +60,47 @@ def formatear_timedelta(td: timedelta) -> str:
     minutos = (total_segundos % 3600) // 60
     return f"{horas:02d}:{minutos:02d}"
 
+def calcular_duracion_jornada(schedule, fecha: datetime.date) -> timedelta:
+    """
+    Dado un Schedule y una fecha (por si en el futuro quieres por-día),
+    devuelve la duración neta de la jornada (restando descansos).
+    """
+    # Construimos datetimes sólo para facilitar restas, usando la fecha indicada
+    ws_dt = datetime.combine(fecha, schedule.work_start)
+    we_dt = datetime.combine(fecha, schedule.work_end)
+
+    if we_dt <= ws_dt:
+        # Jornada que cruza medianoche (no lo hemos modelado aún, simplificamos)
+        we_dt += timedelta(days=1)
+
+    duracion = we_dt - ws_dt
+
+    if schedule.break_type == "fixed" and schedule.fixed_break_start and schedule.fixed_break_end:
+        bs = datetime.combine(fecha, schedule.fixed_break_start)
+        be = datetime.combine(fecha, schedule.fixed_break_end)
+        if be <= bs:
+            be += timedelta(days=1)
+        duracion -= (be - bs)
+
+    elif schedule.break_type == "flexible" and schedule.flexible_break_minutes:
+        duracion -= timedelta(minutes=schedule.flexible_break_minutes)
+
+    if duracion.total_seconds() < 0:
+        duracion = timedelta(0)
+
+    return duracion
+
+
+def calcular_extra_y_defecto(trabajado: timedelta,
+                             schedule,
+                             fecha: datetime.date) -> (timedelta, timedelta):
+    """
+    Devuelve (extra, defecto) en función del tiempo trabajado y la jornada del horario.
+    """
+    jornada = calcular_duracion_jornada(schedule, fecha)
+    if trabajado > jornada:
+        return (trabajado - jornada, timedelta(0))
+    elif trabajado < jornada:
+        return (timedelta(0), jornada - trabajado)
+    else:
+        return (timedelta(0), timedelta(0))

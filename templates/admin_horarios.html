@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Horarios - Administración{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Gestión de horarios</h1>
+
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card mb-4">
+      <div class="card-header">
+        Crear nuevo horario
+      </div>
+      <div class="card-body">
+        <form action="{{ url_for('admin_horarios') }}" method="post" class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Nombre del horario</label>
+            <input type="text" name="name" class="form-control" required>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Inicio jornada</label>
+            <input type="time" name="start_time" class="form-control" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Fin jornada</label>
+            <input type="time" name="end_time" class="form-control" required>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Descanso</label>
+            <select name="break_type" id="break_type" class="form-select">
+              <option value="none">Sin descanso</option>
+              <option value="fixed">Descanso fijo</option>
+              <option value="flexible">Descanso flexible</option>
+            </select>
+          </div>
+
+          <div class="col-md-6 descanso-fijo d-none">
+            <label class="form-label">Inicio descanso fijo</label>
+            <input type="time" name="break_start" class="form-control">
+          </div>
+          <div class="col-md-6 descanso-fijo d-none">
+            <label class="form-label">Fin descanso fijo</label>
+            <input type="time" name="break_end" class="form-control">
+          </div>
+
+          <div class="col-md-6 descanso-flexible d-none">
+            <label class="form-label">Descanso flexible (minutos)</label>
+            <input type="number" min="0" name="break_minutes" class="form-control">
+          </div>
+
+          <div class="col-12">
+            <button type="submit" class="btn btn-success">
+              Guardar horario
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card mb-4">
+      <div class="card-header">
+        Horarios existentes
+      </div>
+      <div class="card-body">
+        {% if horarios %}
+          <div class="table-responsive">
+            <table class="table table-striped table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Nombre</th>
+                  <th>Jornada</th>
+                  <th>Descanso</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for h in horarios %}
+                <tr>
+                  <td>{{ h.name }}</td>
+                  <td>
+                    {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
+                  </td>
+                  <td>
+                    {% if h.break_type == 'none' %}
+                      Sin descanso
+                    {% elif h.break_type == 'fixed' %}
+                      Fijo:
+                      {{ h.break_start.strftime('%H:%M') }} - {{ h.break_end.strftime('%H:%M') }}
+                    {% elif h.break_type == 'flexible' %}
+                      Flexible: {{ h.break_minutes }} min
+                    {% else %}
+                      <span class="text-muted">Desconocido</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted mb-0">No hay horarios definidos todavía.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  function actualizarCamposDescanso() {
+    const tipo = document.getElementById('break_type').value;
+    const fijoElems = document.querySelectorAll('.descanso-fijo');
+    const flexElems = document.querySelectorAll('.descanso-flexible');
+
+    if (tipo === 'fixed') {
+      fijoElems.forEach(e => e.classList.remove('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
+    } else if (tipo === 'flexible') {
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.remove('d-none'));
+    } else {
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const sel = document.getElementById('break_type');
+    if (sel) {
+      sel.addEventListener('change', actualizarCamposDescanso);
+      actualizarCamposDescanso();
+    }
+  });
+</script>
+{% endblock %}

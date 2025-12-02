@@ -1,47 +1,140 @@
 {% extends "base.html" %}
-{% block title %}Editar ubicación - Administración{% endblock %}
+
+{% block title %}Editar ubicación{% endblock %}
 
 {% block content %}
 <h1 class="mb-4">Editar ubicación</h1>
 
 <div class="card">
+  <div class="card-header">
+    Editar: {{ loc.name }}
+  </div>
   <div class="card-body">
     <form action="{{ url_for('editar_ubicacion', loc_id=loc.id) }}" method="post">
-      <div class="row">
-        <div class="col-md-6 mb-3">
-          <label class="form-label">Nombre</label>
-          <input type="text" name="name" class="form-control"
-                 value="{{ loc.name }}" required>
-        </div>
-        <div class="col-md-3 mb-3">
-          <label class="form-label">Latitud</label>
-          <input type="text" name="latitude" class="form-control"
-                 value="{{ loc.latitude }}" required>
-        </div>
-        <div class="col-md-3 mb-3">
-          <label class="form-label">Longitud</label>
-          <input type="text" name="longitude" class="form-control"
-                 value="{{ loc.longitude }}" required>
+      <div class="mb-3">
+        <label class="form-label">Nombre de la ubicación</label>
+        <input type="text" name="name" class="form-control" value="{{ loc.name }}" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Latitud</label>
+        <input type="text" name="latitude" id="latitude" class="form-control"
+               value="{{ '%.6f'|format(loc.latitude) }}" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Longitud</label>
+        <input type="text" name="longitude" id="longitude" class="form-control"
+               value="{{ '%.6f'|format(loc.longitude) }}" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Radio (metros)</label>
+        <input type="text" name="radius_meters" class="form-control"
+               value="{{ loc.radius_meters }}" required>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Ajustar en el mapa</label>
+        <div id="map-editar" style="height: 350px; border: 1px solid #ddd; border-radius: .25rem;"></div>
+        <div class="form-text">
+          Haz clic en el mapa para mover la ubicación y actualizar latitud/longitud.
         </div>
       </div>
 
-      <div class="row">
-        <div class="col-md-3 mb-3">
-          <label class="form-label">Radio permitido (m)</label>
-          <input type="number" name="radius_meters" class="form-control"
-                 value="{{ loc.radius_meters }}" min="1" required>
-        </div>
-      </div>
-
-      <div class="d-flex justify-content-between mt-2">
-        <a href="{{ url_for('admin_ubicaciones') }}" class="btn btn-outline-secondary">
-          Volver
-        </a>
-        <button type="submit" class="btn btn-primary">
-          Guardar cambios
-        </button>
-      </div>
+      <a href="{{ url_for('admin_ubicaciones') }}" class="btn btn-secondary">
+        Volver
+      </a>
+      <button type="submit" class="btn btn-primary">
+        Guardar cambios
+      </button>
     </form>
   </div>
 </div>
 {% endblock %}
+
+{% block scripts %}
+{{ super() }}
+
+<!-- Leaflet CSS y JS (CDN) -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const latInput = document.getElementById('latitude');
+    const lonInput = document.getElementById('longitude');
+
+    let startLat = parseFloat(latInput.value);
+    let startLon = parseFloat(lonInput.value);
+
+    // Fallback por si algo viene mal
+    if (isNaN(startLat) || isNaN(startLon)) {
+      startLat = 40.4168;
+      startLon = -3.7038;
+    }
+
+    const map = L.map('map-editar').setView([startLat, startLon], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Marcador de la ubicación que estamos editando
+    let marker = L.marker([startLat, startLon]).addTo(map);
+
+    // Opcionalmente, ajustaremos el mapa para que se vean tanto la ubicación editada
+    // como tu ubicación actual (si el navegador la permite)
+    let bounds = L.latLngBounds([marker.getLatLng()]);
+    let userMarker = null;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const userLat = pos.coords.latitude;
+          const userLon = pos.coords.longitude;
+          const userLatLng = L.latLng(userLat, userLon);
+
+          userMarker = L.circleMarker(userLatLng, {
+            radius: 8,
+            color: '#0056b3',
+            fillColor: '#0d6efd',
+            fillOpacity: 0.8
+          })
+          .addTo(map)
+          .bindPopup('Tu ubicación actual');
+
+          // Ampliamos límites para que se vean ambas cosas
+          bounds.extend(userLatLng);
+          map.fitBounds(bounds, { padding: [20, 20] });
+        },
+        (err) => {
+          console.warn('No se pudo obtener la ubicación actual en edición:', err);
+          // En ese caso, simplemente dejamos el mapa centrado en la ubicación editada
+          map.setView([startLat, startLon], 14);
+        }
+      );
+    }
+
+    // Al clicar en el mapa: movemos el marcador de la ubicación y actualizamos inputs
+    map.on('click', function(e) {
+      const { lat, lng } = e.latlng;
+
+      marker.setLatLng(e.latlng);
+      latInput.value = lat.toFixed(6);
+      lonInput.value = lng.toFixed(6);
+    });
+  });
+</script>
+{% endblock %}
+

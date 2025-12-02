@@ -74,15 +74,44 @@
                     <th>Acción</th>
                     <th>Fecha</th>
                     <th>Ubicación</th>
+                    <th>Horas extra</th>
+                    <th>Horas en defecto</th>
                 </tr>
             </thead>
             <tbody>
             {% for registro in registros %}
+                {% set label = ubicacion_por_registro.get(registro.id) %}
+                {% set info = extra_por_registro.get(registro.id) %}
                 <tr>
                     <td>{{ registro.usuario.username }}</td>
                     <td>{{ registro.accion }}</td>
                     <td>{{ registro.momento.strftime("%Y-%m-%d %H:%M:%S") }}</td>
-                    <td>{{ registro.latitude }}, {{ registro.longitude }}</td>
+                    <td>
+                        {% if label %}
+                            {{ label }}<br>
+                        {% else %}
+                            <span class="text-muted">Sin datos</span><br>
+                        {% endif %}
+                        {% if registro.latitude is not none and registro.longitude is not none %}
+                            <a href="https://www.google.com/maps?q={{ registro.latitude }},{{ registro.longitude }}" target="_blank">
+                                Ver en Google Maps
+                            </a>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if info and info.extra %}
+                            {{ info.extra }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if info and info.defecto %}
+                            {{ info.defecto }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
                 </tr>
             {% endfor %}
             </tbody>
