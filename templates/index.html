@@ -52,23 +52,19 @@
       </div>
     </div>
 
-    <div class="card mb-4">
-      <div class="card-header">
-        Resumen de horas recientes
-      </div>
-      <div class="card-body">
-        {% if resumen_horas %}
-          <ul class="mb-0">
-            {% for item in resumen_horas %}
-              <li>
-                <strong>{{ item.dia.strftime("%d/%m/%Y") }}:</strong>
-                {{ item.horas }}
-              </li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p class="text-muted mb-0">Todavía no hay horas registradas.</p>
-        {% endif %}
+      <div class="card mb-4">
+        <div class="card-header">
+          Resumen de horas
+        </div>
+        <div class="card-body">
+          {% if resumen_horas and resumen_horas != "00:00" %}
+            <p class="mb-0">
+              Total de horas registradas: <strong>{{ resumen_horas }}</strong>
+            </p>
+          {% else %}
+            <p class="text-muted mb-0">Todavía no hay horas registradas.</p>
+          {% endif %}
+        </div>
       </div>
     </div>
   </div>

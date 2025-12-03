@@ -393,15 +393,10 @@ def index():
     # Intervalos Entrada/Salida SOLO del usuario actual
     intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
 
-    # Resumen de horas para el usuario actual (puede seguir siendo por registros “planos”)
-    horas_por_dia = calcular_horas_trabajadas(registros_usuario)
-    resumen_horas = [
-        {
-            "dia": dia,
-            "horas": formatear_timedelta(td),
-        }
-        for dia, td in sorted(horas_por_dia.items(), key=lambda x: x[0], reverse=True)
-    ]
+    # Resumen: total de horas del usuario actual
+    horas_por_usuario = calcular_horas_trabajadas(registros_usuario)
+    total_td = horas_por_usuario.get(current_user.username, timedelta())
+    resumen_horas = formatear_timedelta(total_td)
 
     # Ubicaciones múltiples del usuario (para el formulario y mensajes)
     ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
@@ -416,6 +411,7 @@ def index():
         tiene_ubicaciones=tiene_ubicaciones,
         tiene_flexible=tiene_flexible,
     )
+
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
 @admin_required
