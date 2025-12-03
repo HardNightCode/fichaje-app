@@ -74,6 +74,7 @@
                   <th>Nombre</th>
                   <th>Jornada</th>
                   <th>Descanso</th>
+                  <th class="text-end">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -94,6 +95,12 @@
                     {% else %}
                       <span class="text-muted">Desconocido</span>
                     {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <a href="{{ url_for('editar_horario', schedule_id=h.id) }}"
+                       class="btn btn-sm btn-outline-primary">
+                      Editar
+                    </a>
                   </td>
                 </tr>
               {% endfor %}

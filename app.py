@@ -661,6 +661,73 @@ def admin_horarios():
     horarios = Schedule.query.order_by(Schedule.name).all()
     return render_template("admin_horarios.html", horarios=horarios)
 
+@app.route("/admin/horarios/<int:schedule_id>/editar", methods=["GET", "POST"])
+@admin_required
+def editar_horario(schedule_id):
+    horario = Schedule.query.get_or_404(schedule_id)
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        start_time_str = request.form.get("start_time", "").strip()
+        end_time_str = request.form.get("end_time", "").strip()
+        break_type = request.form.get("break_type", "none")
+
+        break_start_str = request.form.get("break_start", "").strip()
+        break_end_str = request.form.get("break_end", "").strip()
+        break_minutes_str = request.form.get("break_minutes", "").strip()
+
+        if not name or not start_time_str or not end_time_str:
+            flash("Nombre, inicio y fin de jornada son obligatorios.", "error")
+            return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+        try:
+            start_time = datetime.strptime(start_time_str, "%H:%M").time()
+            end_time = datetime.strptime(end_time_str, "%H:%M").time()
+        except ValueError:
+            flash("Las horas de inicio y fin deben tener formato HH:MM.", "error")
+            return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+        break_start = None
+        break_end = None
+        break_minutes = None
+
+        if break_type == "fixed":
+            if not break_start_str or not break_end_str:
+                flash("Para descanso fijo debes indicar inicio y fin de descanso.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
+            try:
+                break_start = datetime.strptime(break_start_str, "%H:%M").time()
+                break_end = datetime.strptime(break_end_str, "%H:%M").time()
+            except ValueError:
+                flash("Las horas de descanso deben tener formato HH:MM.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+        elif break_type == "flexible":
+            if not break_minutes_str:
+                flash("Para descanso flexible debes indicar los minutos de descanso.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
+            try:
+                break_minutes = int(break_minutes_str)
+            except ValueError:
+                flash("Los minutos de descanso deben ser numéricos.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+        # Guardamos cambios
+        horario.name = name
+        horario.start_time = start_time
+        horario.end_time = end_time
+        horario.break_type = break_type
+        horario.break_start = break_start
+        horario.break_end = break_end
+        horario.break_minutes = break_minutes
+
+        db.session.commit()
+        flash("Horario actualizado correctamente.", "success")
+        return redirect(url_for("admin_horarios"))
+
+    # GET: rellenar el formulario con los datos actuales
+    return render_template("admin_horario_editar.html", horario=horario)
+
 @app.route("/admin/usuarios/fichas")
 @admin_required
 def admin_usuarios_fichas():
@@ -1056,6 +1123,50 @@ def fichar():
     if not es_valido:
         flash(msg_error, "error")
         return redirect(url_for("index"))
+
+    # === Comprobación de horario (si está configurado y se fuerza) ===
+    settings = getattr(current_user, "schedule_settings", None)
+    if settings and settings.enforce_schedule:
+        # Horarios asignados al usuario (many-to-many)
+        user_schedules = list(current_user.schedules)
+
+        if not user_schedules:
+            flash(
+                "No tienes ningún horario asignado. Contacta con el administrador.",
+                "error",
+            )
+            return redirect(url_for("index"))
+
+        margin = settings.margin_minutes or 0
+        ahora = datetime.now()  # Hora local del servidor
+        hoy = ahora.date()
+
+        autorizado_por_horario = False
+
+        for sched in user_schedules:
+            # Construimos el intervalo [inicio, fin] para hoy
+            inicio_dt = datetime.combine(hoy, sched.start_time)
+            fin_dt = datetime.combine(hoy, sched.end_time)
+
+            # Si el horario cruza medianoche (ej. 22:00–06:00)
+            if fin_dt <= inicio_dt:
+                fin_dt += timedelta(days=1)
+
+            # Aplicamos margen
+            inicio_con_margen = inicio_dt - timedelta(minutes=margin)
+            fin_con_margen = fin_dt + timedelta(minutes=margin)
+
+            if inicio_con_margen <= ahora <= fin_con_margen:
+                autorizado_por_horario = True
+                break
+
+        if not autorizado_por_horario:
+            flash(
+                "No estás dentro de tu horario autorizado para fichar "
+                f"(se tiene en cuenta un margen de {margin} minutos).",
+                "error",
+            )
+            return redirect(url_for("index"))
 
     # Coordenadas
     lat_str = request.form.get("lat")

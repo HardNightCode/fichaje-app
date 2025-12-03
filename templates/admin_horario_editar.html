@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Editar horario{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Editar horario</h1>
+
+<form action="{{ url_for('editar_horario', schedule_id=horario.id) }}" method="post" class="row g-3">
+
+  <div class="col-md-6">
+    <label class="form-label">Nombre</label>
+    <input type="text" name="name" class="form-control"
+           value="{{ horario.name }}" required>
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Inicio jornada</label>
+    <input type="time" name="start_time" class="form-control"
+           value="{{ horario.start_time.strftime('%H:%M') }}" required>
+  </div>
+
+  <div class="col-md-3">
+    <label class="form-label">Fin jornada</label>
+    <input type="time" name="end_time" class="form-control"
+           value="{{ horario.end_time.strftime('%H:%M') }}" required>
+  </div>
+
+  <div class="col-md-4">
+    <label class="form-label">Tipo de descanso</label>
+    <select name="break_type" id="break_type" class="form-select">
+      <option value="none" {% if horario.break_type == 'none' %}selected{% endif %}>Sin descanso</option>
+      <option value="fixed" {% if horario.break_type == 'fixed' %}selected{% endif %}>Descanso fijo</option>
+      <option value="flexible" {% if horario.break_type == 'flexible' %}selected{% endif %}>Descanso flexible</option>
+    </select>
+  </div>
+
+  <div class="col-md-4" id="fixed_break_group">
+    <label class="form-label">Descanso fijo (inicio – fin)</label>
+    <div class="input-group">
+      <input type="time" name="break_start" class="form-control"
+             value="{{ horario.break_start.strftime('%H:%M') if horario.break_start }}">
+      <span class="input-group-text">–</span>
+      <input type="time" name="break_end" class="form-control"
+             value="{{ horario.break_end.strftime('%H:%M') if horario.break_end }}">
+    </div>
+  </div>
+
+  <div class="col-md-4" id="flex_break_group">
+    <label class="form-label">Descanso flexible (minutos)</label>
+    <input type="number" min="0" name="break_minutes" class="form-control"
+           value="{{ horario.break_minutes or '' }}">
+  </div>
+
+  <div class="col-12">
+    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+    <a href="{{ url_for('admin_horarios') }}" class="btn btn-secondary ms-2">Volver</a>
+  </div>
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+function toggleBreakFields() {
+  const type = document.getElementById('break_type').value;
+  const fixedGroup = document.getElementById('fixed_break_group');
+  const flexGroup  = document.getElementById('flex_break_group');
+
+  if (type === 'fixed') {
+    fixedGroup.style.display = 'block';
+    flexGroup.style.display = 'none';
+  } else if (type === 'flexible') {
+    fixedGroup.style.display = 'none';
+    flexGroup.style.display = 'block';
+  } else {
+    fixedGroup.style.display = 'none';
+    flexGroup.style.display = 'none';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  toggleBreakFields();
+  document.getElementById('break_type').addEventListener('change', toggleBreakFields);
+});
+</script>
+{% endblock %}
