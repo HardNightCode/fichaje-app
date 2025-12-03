@@ -31,6 +31,7 @@ from services_fichaje import (
 from typing import Optional, List
 from enum import Enum
 from collections import defaultdict
+from types import SimpleNamespace
 
 # ======================================================
 # Configuración básica de Flask
@@ -922,6 +923,143 @@ def construir_mapas_extra_y_ubicacion(registros):
 
     return ubicacion_por_registro, extra_por_registro
 
+def construir_intervalo(entrada, salida, ubicaciones_definidas):
+    """
+    Construye un objeto 'intervalo' a partir de una posible entrada y una posible salida.
+    Devuelve un SimpleNamespace con:
+      - usuario
+      - entrada, salida (Registros o None)
+      - entrada_momento, salida_momento
+      - label_entrada, label_salida, ubicacion_label (texto combinado)
+      - entrada_lat, entrada_lon, salida_lat, salida_lon
+      - row_id (para usar en el DOM)
+    """
+
+    usuario = None
+    if entrada is not None:
+        usuario = entrada.usuario
+    elif salida is not None:
+        usuario = salida.usuario
+
+    def info_ubicacion(reg):
+        """
+        Para un Registro devuelve (label, lat, lon)
+        label:
+          - nombre de Location si está dentro de alguna
+          - "lat, lon" si no coincide con ninguna
+          - "Sin datos" si no hay coordenadas
+        """
+        if reg is None:
+            return None, None, None
+
+        lat = reg.latitude
+        lon = reg.longitude
+        if lat is None or lon is None:
+            return "Sin datos", None, None
+
+        loc = determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones_definidas)
+        if loc:
+            label = loc.name
+        else:
+            try:
+                label = f"{lat:.6f}, {lon:.6f}"
+            except Exception:
+                label = f"{lat}, {lon}"
+        return label, lat, lon
+
+    label_e, lat_e, lon_e = info_ubicacion(entrada)
+    label_s, lat_s, lon_s = info_ubicacion(salida)
+
+    # Texto combinado para CSV/PDF: una sola etiqueta si son iguales,
+    # o "Entrada - Salida" si son distintas
+    if label_e and label_s:
+        if label_e == label_s:
+            ubicacion_label = label_e
+        else:
+            ubicacion_label = f"{label_e} - {label_s}"
+    else:
+        ubicacion_label = label_e or label_s or "Sin datos"
+
+    # ID de fila (usamos el id de entrada si existe, si no el de salida)
+    row_id = None
+    if entrada is not None:
+        row_id = entrada.id
+    elif salida is not None:
+        row_id = salida.id
+
+    return SimpleNamespace(
+        usuario=usuario,
+        entrada=entrada,
+        salida=salida,
+        entrada_momento=entrada.momento if entrada is not None else None,
+        salida_momento=salida.momento if salida is not None else None,
+        label_entrada=label_e,
+        label_salida=label_s,
+        ubicacion_label=ubicacion_label,
+        entrada_lat=lat_e,
+        entrada_lon=lon_e,
+        salida_lat=lat_s,
+        salida_lon=lon_s,
+        row_id=row_id,
+    )
+
+
+def agrupar_registros_en_intervalos(registros):
+    """
+    A partir de una lista de Registro (ya filtrada por usuario/fechas/ubicación),
+    agrupa en intervalos Entrada/Salida por usuario y día.
+
+    Devuelve una lista de objetos (SimpleNamespace) con la estructura
+    generada por construir_intervalo().
+    """
+    intervalos = []
+
+    # Todas las ubicaciones (excepto "Flexible") para resolver nombres
+    ubicaciones_definidas = Location.query.filter(Location.name != "Flexible").all()
+
+    # Agrupamos por (usuario_id, fecha)
+    regs_por_usuario_y_dia = defaultdict(list)
+    for r in registros:
+        if r.usuario_id is None or r.momento is None:
+            continue
+        fecha = r.momento.date()
+        regs_por_usuario_y_dia[(r.usuario_id, fecha)].append(r)
+
+    for (uid, fecha), regs_dia in regs_por_usuario_y_dia.items():
+        regs_ordenados = sorted(regs_dia, key=lambda x: x.momento)
+        entrada_actual = None
+
+        for r in regs_ordenados:
+            if r.accion == "entrada":
+                if entrada_actual is None:
+                    entrada_actual = r
+                else:
+                    # Teníamos una entrada sin salida -> intervalo huérfano
+                    intervalos.append(construir_intervalo(entrada_actual, None, ubicaciones_definidas))
+                    entrada_actual = r
+            elif r.accion == "salida":
+                if entrada_actual is not None:
+                    intervalos.append(construir_intervalo(entrada_actual, r, ubicaciones_definidas))
+                    entrada_actual = None
+                else:
+                    # Salida sin entrada previa en el filtro
+                    intervalos.append(construir_intervalo(None, r, ubicaciones_definidas))
+
+        # Si al final del día queda una entrada sin salida, también la añadimos
+        if entrada_actual is not None:
+            intervalos.append(construir_intervalo(entrada_actual, None, ubicaciones_definidas))
+
+    # Orden global por momento de entrada (o salida si no hay entrada)
+    def key_intervalo(it):
+        if it.entrada_momento is not None:
+            return it.entrada_momento
+        elif it.salida_momento is not None:
+            return it.salida_momento
+        else:
+            return datetime.min
+
+    intervalos.sort(key=key_intervalo, reverse=True)
+    return intervalos
 
 @app.route("/fichar", methods=["POST"])
 @login_required
@@ -1133,11 +1271,8 @@ def admin_registros():
     fecha_semana = ""
     mes = None   # entero o None
     registros = []
+    intervalos = []
     ubicacion_filtro = "all"
-
-    # Mapas para la vista / exportaciones
-    ubicacion_por_registro = {}
-    extra_por_registro = {}
 
     if request.method == "POST":
         usuario_seleccionado = request.form.get("usuario_id", "all")
@@ -1232,11 +1367,7 @@ def admin_registros():
         # Ejecutamos la consulta una sola vez (usuario + periodo + tiempo)
         registros = query.all()
 
-        # ---- Filtro por ubicación ----
-        # ubicacion_filtro:
-        #  - "all"      -> no se filtra por ubicación
-        #  - "flexible" -> registros cuyas coordenadas NO caen dentro de ninguna ubicación definida
-        #  - <id>       -> registros cuyas coordenadas caen dentro del radio de esa ubicación
+        # ---- Filtro por ubicación (a nivel de fichaje) ----
         if ubicacion_filtro != "all":
             registros_filtrados = []
             if ubicacion_filtro == "flexible":
@@ -1272,25 +1403,20 @@ def admin_registros():
 
             registros = registros_filtrados
 
-        # ---- Mapas de ubicación y horas extra/defecto ----
-        ubicacion_por_registro, extra_por_registro = construir_mapas_extra_y_ubicacion(
-            registros
-        )
+        # ---- Agrupar en intervalos Entrada/Salida ----
+        intervalos = agrupar_registros_en_intervalos(registros)
 
         # ---- Exportaciones ----
         if accion == "csv":
-            return generar_csv(registros, ubicacion_por_registro, extra_por_registro)
+            return generar_csv(intervalos)
         if accion == "pdf":
-            return generar_pdf(
-                registros, tipo_periodo, ubicacion_por_registro, extra_por_registro
-            )
+            return generar_pdf(intervalos, tipo_periodo)
 
     else:
         # GET: mes None
         mes = None
         registros = []
-        ubicacion_por_registro = {}
-        extra_por_registro = {}
+        intervalos = []
 
     # ---- Resumen de horas trabajadas por usuario en el filtro actual ----
     horas_por_usuario = {}
@@ -1304,35 +1430,10 @@ def admin_registros():
         if total.total_seconds() > 0:
             horas_por_usuario[usuario.username] = formatear_timedelta(total)
 
-    # ---- Mapa de ediciones (última edición por registro, si existe relación) ----
-    edicion_por_registro = {}
-    if hasattr(Registro, "ediciones"):
-        for r in registros:
-            try:
-                eds = r.ediciones
-                ultima = None
-
-                # Si es relación dinámica (query)
-                if hasattr(eds, "order_by") and hasattr(eds, "first"):
-                    try:
-                        ultima = eds.order_by(db.desc("edit_time")).first()
-                    except Exception:
-                        ultima = eds.first()
-                else:
-                    # Lo tratamos como iterable/lista
-                    eds_list = list(eds)
-                    if eds_list:
-                        ultima = eds_list[-1]
-
-                if ultima:
-                    edicion_por_registro[r.id] = ultima
-            except Exception:
-                continue
-
     return render_template(
         "admin_registros.html",
         usuarios=usuarios,
-        registros=registros,
+        intervalos=intervalos,
         usuario_seleccionado=usuario_seleccionado,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
@@ -1342,9 +1443,6 @@ def admin_registros():
         mes=mes,
         ubicaciones_definidas=ubicaciones_definidas,
         ubicacion_filtro=ubicacion_filtro,
-        ubicacion_por_registro=ubicacion_por_registro,
-        extra_por_registro=extra_por_registro,
-        edicion_por_registro=edicion_por_registro,
     )
 
 @app.route("/admin/registros/<int:registro_id>/editar", methods=["GET", "POST"])
@@ -1425,36 +1523,39 @@ def editar_registro(registro_id):
         momento_val=momento_val,
     )
 
-def generar_csv(registros, ubicacion_por_registro, extra_por_registro):
-    """Generar un archivo CSV con los registros filtrados actuales."""
+def generar_csv(intervalos):
+    """Generar un archivo CSV a partir de los intervalos Entrada/Salida."""
     output = StringIO()
     writer = csv.writer(output, delimiter=";")
 
     # Cabecera
     writer.writerow([
         "Usuario",
-        "Acción",
-        "Fecha y hora (UTC)",
-        "Latitud",
-        "Longitud",
+        "Fecha/hora entrada",
+        "Fecha/hora salida",
         "Ubicación",
         "Horas extra",
         "Horas en defecto",
     ])
 
-    for r in registros:
-        label = ubicacion_por_registro.get(r.id, "")
-        info_extra = extra_por_registro.get(r.id, {})
+    for it in intervalos:
+        if it.entrada_momento is not None:
+            fe = it.entrada_momento.strftime("%H:%M %d/%m/%Y")
+        else:
+            fe = ""
+
+        if it.salida_momento is not None:
+            fs = it.salida_momento.strftime("%H:%M %d/%m/%Y")
+        else:
+            fs = ""
 
         writer.writerow([
-            r.usuario.username if r.usuario else "",
-            r.accion,
-            r.momento.strftime("%Y-%m-%d %H:%M:%S"),
-            f"{r.latitude:.6f}" if r.latitude is not None else "",
-            f"{r.longitude:.6f}" if r.longitude is not None else "",
-            label,
-            info_extra.get("extra") or "",
-            info_extra.get("defecto") or "",
+            it.usuario.username if it.usuario else "",
+            fe,
+            fs,
+            it.ubicacion_label or "",
+            "",  # Horas extra (a rellenar cuando se calcule)
+            "",  # Horas en defecto
         ])
 
     csv_data = output.getvalue().encode("utf-8-sig")
@@ -1467,20 +1568,28 @@ def generar_csv(registros, ubicacion_por_registro, extra_por_registro):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-def generar_pdf(registros, tipo_periodo: str, ubicacion_por_registro, extra_por_registro):
+
+def generar_pdf(intervalos, tipo_periodo: str):
     """
     Genera un PDF usando la plantilla informe_pdf.html,
-    incluyendo ubicación amigable y horas extra/defecto.
+    mostrando intervalos Entrada/Salida.
     """
-    resumen_horas = calcular_horas_trabajadas(registros)
+
+    # Para el resumen de horas, aplanamos de nuevo a lista de registros
+    registros_flat = []
+    for it in intervalos:
+        if it.entrada is not None:
+            registros_flat.append(it.entrada)
+        if it.salida is not None:
+            registros_flat.append(it.salida)
+
+    resumen_horas = calcular_horas_trabajadas(registros_flat)
 
     html = render_template(
         "informe_pdf.html",
-        registros=registros,
+        intervalos=intervalos,
         resumen_horas=resumen_horas,
         tipo_periodo=tipo_periodo,
-        ubicacion_por_registro=ubicacion_por_registro,
-        extra_por_registro=extra_por_registro,
     )
     return render_pdf(HTML(string=html))
 

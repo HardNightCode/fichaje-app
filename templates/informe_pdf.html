@@ -65,52 +65,37 @@
         <p>No hay horas registradas para este periodo.</p>
     {% endif %}
 
-    <h2>Registros de fichajes</h2>
+    <h2>Registros de fichajes (intervalos)</h2>
     <div class="table-container">
         <table>
             <thead>
                 <tr>
                     <th>Usuario</th>
-                    <th>Acción</th>
-                    <th>Fecha</th>
+                    <th>Entrada</th>
+                    <th>Salida</th>
                     <th>Ubicación</th>
-                    <th>Horas extra</th>
-                    <th>Horas en defecto</th>
                 </tr>
             </thead>
             <tbody>
-            {% for registro in registros %}
-                {% set label = ubicacion_por_registro.get(registro.id) %}
-                {% set info = extra_por_registro.get(registro.id) %}
+            {% for it in intervalos %}
                 <tr>
-                    <td>{{ registro.usuario.username }}</td>
-                    <td>{{ registro.accion }}</td>
-                    <td>{{ registro.momento.strftime("%Y-%m-%d %H:%M:%S") }}</td>
+                    <td>{{ it.usuario.username }}</td>
                     <td>
-                        {% if label %}
-                            {{ label }}<br>
+                        {% if it.entrada_momento %}
+                            {{ it.entrada_momento.strftime("%H:%M %d/%m/%Y") }}
                         {% else %}
-                            <span class="text-muted">Sin datos</span><br>
-                        {% endif %}
-                        {% if registro.latitude is not none and registro.longitude is not none %}
-                            <a href="https://www.google.com/maps?q={{ registro.latitude }},{{ registro.longitude }}" target="_blank">
-                                Ver en Google Maps
-                            </a>
+                            Sin entrada
                         {% endif %}
                     </td>
                     <td>
-                        {% if info and info.extra %}
-                            {{ info.extra }}
+                        {% if it.salida_momento %}
+                            {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
                         {% else %}
-                            -
+                            Sin salida
                         {% endif %}
                     </td>
                     <td>
-                        {% if info and info.defecto %}
-                            {{ info.defecto }}
-                        {% else %}
-                            -
-                        {% endif %}
+                        {{ it.ubicacion_label }}
                     </td>
                 </tr>
             {% endfor %}

@@ -132,83 +132,120 @@
 <div class="card">
   <div class="card-header">Resultados</div>
   <div class="card-body p-0">
-    {% if registros %}
+    {% if intervalos %}
       <div class="table-responsive">
         <table class="table table-striped table-hover mb-0">
           <thead class="table-light">
             <tr>
               <th>Usuario</th>
               <th>Rol</th>
-              <th>Acción</th>
-              <th>Fecha y hora (UTC)</th>
+              <th>Entrada</th>
+              <th>Salida</th>
               <th>Ubicación</th>
-              <th class="text-end">Estado</th>
+              <th class="text-end">Edición / Acciones</th>
             </tr>
           </thead>
           <tbody>
-          {% for r in registros %}
-            <tr class="registro-row" data-registro-id="{{ r.id }}">
-              <td>{{ r.usuario.username }}</td>
-              <td>{{ r.usuario.role }}</td>
+          {% for it in intervalos %}
+            <tr class="intervalo-row" data-interval-id="{{ it.row_id }}">
+              <td>{{ it.usuario.username }}</td>
+              <td>{{ it.usuario.role }}</td>
+
               <td>
-                {% if r.accion == 'entrada' %}
-                  <span class="badge bg-success">Entrada</span>
+                {% if it.entrada_momento %}
+                  {{ it.entrada_momento.strftime("%H:%M %d/%m/%Y") }}
                 {% else %}
-                  <span class="badge bg-danger">Salida</span>
+                  <span class="text-muted">Sin entrada</span>
                 {% endif %}
               </td>
-              <td>{{ r.momento }}</td>
+
               <td>
-                {% set loc_reg = ubicacion_por_registro.get(r.id) %}
-                {% if loc_reg %}
-                  <strong>{{ loc_reg }}</strong><br>
-                  {% if r.latitude is not none and r.longitude is not none %}
-                    <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
-                       class="link-primary" target="_blank">
-                      Ver en Google Maps
-                    </a>
+                {% if it.salida_momento %}
+                  {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
+                {% else %}
+                  <span class="text-muted">Sin salida</span>
+                {% endif %}
+              </td>
+
+              <td>
+                {% if it.label_entrada or it.label_salida %}
+                  {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
+                    {# Misma ubicación en entrada y salida -> solo una vez #}
+                    {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                      <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
+                         class="link-primary" target="_blank">
+                        {{ it.label_entrada }}
+                      </a>
+                    {% else %}
+                      {{ it.label_entrada }}
+                    {% endif %}
                   {% else %}
-                    <span class="text-muted">Sin coordenadas</span>
+                    {# Ubicaciones distintas o falta alguna #}
+                    {% if it.label_entrada %}
+                      {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                        <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
+                           class="link-primary" target="_blank">
+                          {{ it.label_entrada }}
+                        </a>
+                      {% else %}
+                        {{ it.label_entrada }}
+                      {% endif %}
+                    {% endif %}
+                    {% if it.label_entrada and it.label_salida %} - {% endif %}
+                    {% if it.label_salida %}
+                      {% if it.salida_lat is not none and it.salida_lon is not none %}
+                        <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}"
+                           class="link-primary" target="_blank">
+                          {{ it.label_salida }}
+                        </a>
+                      {% else %}
+                        {{ it.label_salida }}
+                      {% endif %}
+                    {% endif %}
                   {% endif %}
-                {% elif r.latitude is not none and r.longitude is not none %}
-                  {{ "%.6f"|format(r.latitude) }},
-                  {{ "%.6f"|format(r.longitude) }}<br>
-                  <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
-                     class="link-primary" target="_blank">
-                    Ver en Google Maps
-                  </a>
                 {% else %}
                   <span class="text-muted">Sin datos</span>
                 {% endif %}
               </td>
-              <td class="text-end align-top">
-                <div class="d-flex flex-column align-items-end gap-1">
-                  <a href="{{ url_for('editar_registro', registro_id=r.id) }}"
-                     class="btn btn-sm btn-outline-primary">
-                    Editar
-                  </a>
 
-                  {% set ed = edicion_por_registro.get(r.id) %}
-                  {% if ed %}
-                    <span class="small text-warning fw-semibold edit-toggle"
-                          data-registro-id="{{ r.id }}"
-                          title="Editado por {{ ed.editor.username if ed.editor else 'desconocido' }} el {{ ed.edit_time }} desde {{ ed.editor_ip or 'IP desconocida' }}">
-                      Editado <span class="edit-toggle-sign" data-registro-id="{{ r.id }}">+</span>
-                    </span>
-                  {% else %}
-                    <span class="small text-muted">Sin editar</span>
+              <td class="text-end align-top">
+                {% set tiene_ediciones_entrada = it.entrada and it.entrada.ediciones and it.entrada.ediciones.count() %}
+                {% set tiene_ediciones_salida = it.salida and it.salida.ediciones and it.salida.ediciones.count() %}
+
+                {% if tiene_ediciones_entrada or tiene_ediciones_salida %}
+                  <span class="small text-warning fw-semibold edit-toggle"
+                        data-interval-id="{{ it.row_id }}"
+                        title="Ver historial de ediciones">
+                    Editado <span class="edit-toggle-sign" data-interval-id="{{ it.row_id }}">+</span>
+                  </span>
+                {% else %}
+                  <span class="small text-muted d-block">Sin editar</span>
+                {% endif %}
+
+                <div class="mt-2">
+                  {% if it.entrada %}
+                    <a href="{{ url_for('editar_registro', registro_id=it.entrada.id) }}"
+                       class="btn btn-sm btn-outline-primary">
+                      Editar entrada
+                    </a>
+                  {% endif %}
+                  {% if it.salida %}
+                    <a href="{{ url_for('editar_registro', registro_id=it.salida.id) }}"
+                       class="btn btn-sm btn-outline-secondary ms-1">
+                      Editar salida
+                    </a>
                   {% endif %}
                 </div>
               </td>
             </tr>
 
-            <!-- Fila expandible con historial de ediciones -->
-            <tr id="edit-details-{{ r.id }}" class="edit-details-row" style="display: none;">
+            <!-- Fila expandible con historial de ediciones del intervalo -->
+            <tr id="edit-details-{{ it.row_id }}" class="edit-details-row" style="display: none;">
               <td colspan="6" class="bg-light small">
-                {% if r.ediciones and r.ediciones.count() %}
-                  <strong>Historial de ediciones:</strong>
-                  <ul class="mb-0 mt-2">
-                    {% for e in r.ediciones %}
+                {% if tiene_ediciones_entrada %}
+                  <strong>Historial de ediciones de la ENTRADA:</strong>
+                  <ul class="mb-2 mt-1">
+                    {% for e in it.entrada.ediciones %}
                       <li>
                         <strong>{{ e.edit_time }}</strong> –
                         editado por {{ e.editor.username if e.editor else 'usuario desconocido' }}
@@ -221,8 +258,28 @@
                       </li>
                     {% endfor %}
                   </ul>
-                {% else %}
-                  <span class="text-muted">Este registro no tiene ediciones.</span>
+                {% endif %}
+
+                {% if tiene_ediciones_salida %}
+                  <strong>Historial de ediciones de la SALIDA:</strong>
+                  <ul class="mb-0 mt-1">
+                    {% for e in it.salida.ediciones %}
+                      <li>
+                        <strong>{{ e.edit_time }}</strong> –
+                        editado por {{ e.editor.username if e.editor else 'usuario desconocido' }}
+                        desde {{ e.editor_ip or 'IP desconocida' }}.<br>
+                        Valores anteriores:
+                        acción <code>{{ e.old_accion }}</code>,
+                        fecha/hora <code>{{ e.old_momento }}</code>,
+                        lat <code>{{ e.old_latitude }}</code>,
+                        lon <code>{{ e.old_longitude }}</code>
+                      </li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+
+                {% if not tiene_ediciones_entrada and not tiene_ediciones_salida %}
+                  <span class="text-muted">Este intervalo no tiene ediciones.</span>
                 {% endif %}
               </td>
             </tr>
@@ -271,13 +328,13 @@
     actualizarVisibilidadFechas();
     document.getElementById('tipo_periodo').addEventListener('change', actualizarVisibilidadFechas);
 
-    // Toggle de historial de ediciones
+    // Toggle de historial de ediciones por intervalo
     document.querySelectorAll('.edit-toggle').forEach(function(el) {
       el.addEventListener('click', function() {
-        const registroId = this.getAttribute('data-registro-id');
-        const detailsRow = document.getElementById('edit-details-' + registroId);
+        const intervalId = this.getAttribute('data-interval-id');
+        const detailsRow = document.getElementById('edit-details-' + intervalId);
         const signSpan = document.querySelector(
-          '.edit-toggle-sign[data-registro-id="' + registroId + '"]'
+          '.edit-toggle-sign[data-interval-id="' + intervalId + '"]'
         );
 
         if (!detailsRow || !signSpan) return;
