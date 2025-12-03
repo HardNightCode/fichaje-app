@@ -3,209 +3,159 @@
 {% block title %}Inicio - Sistema de fichaje{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Sistema de fichaje</h1>
+<h1 class="mb-4">Panel de fichaje</h1>
 
 <div class="row">
-  <div class="col-lg-4">
-    <!-- CARD FICHAR -->
+  <div class="col-lg-5">
     <div class="card mb-4">
       <div class="card-header">
         Fichar
       </div>
       <div class="card-body">
         {% if not tiene_ubicaciones %}
-          <p class="text-danger mb-2">
-            No tienes ninguna ubicación asignada. Pide al administrador que te asigne una.
-          </p>
-        {% else %}
-          {% if tiene_flexible %}
-            <p class="mb-2">
-              Ubicación requerida:
-              <strong>Flexible</strong><br>
-              <small class="text-muted">
-                Puedes fichar desde cualquier sitio. Además, se respetan también las ubicaciones fijas que tengas asignadas.
-              </small>
-            </p>
-          {% else %}
-            <p class="mb-2">
-              Ubicaciones válidas para fichar:
-            </p>
-            <ul class="mb-2">
-              {% for loc in ubicaciones_usuario %}
-                <li>
-                  <strong>{{ loc.name }}</strong>
-                  <small class="text-muted">
-                    (radio {{ loc.radius_meters }} m)
-                  </small>
-                </li>
-              {% endfor %}
-            </ul>
-            <small class="text-muted d-block mb-2">
-              Podrás fichar si estás dentro del radio de cualquiera de las ubicaciones anteriores.
-            </small>
-          {% endif %}
+          <div class="alert alert-warning">
+            No tienes ninguna ubicación asignada. Contacta con el administrador.
+          </div>
         {% endif %}
 
-        <form action="{{ url_for('fichar') }}" method="post"
-              onsubmit="return validarUbicacion(event);">
-          <div class="mb-3">
-            <label class="form-label">Acción</label>
-            <select name="accion" class="form-select">
-              <option value="entrada">Entrada</option>
-              <option value="salida">Salida</option>
-            </select>
+        <form id="form-fichar" method="post" action="{{ url_for('fichar') }}">
+          <input type="hidden" name="accion" id="accion">
+          <input type="hidden" name="lat" id="lat">
+          <input type="hidden" name="lon" id="lon">
+
+          <p class="mb-3">
+            Pulsa uno de los botones para registrar tu fichaje. Se usará la
+            ubicación actual de tu dispositivo.
+          </p>
+
+          <div class="d-grid gap-2">
+            <button type="button" class="btn btn-success btn-lg"
+                    onclick="fichar('entrada')"
+                    {% if not tiene_ubicaciones %}disabled{% endif %}>
+              Fichar ENTRADA
+            </button>
+            <button type="button" class="btn btn-danger btn-lg"
+                    onclick="fichar('salida')"
+                    {% if not tiene_ubicaciones %}disabled{% endif %}>
+              Fichar SALIDA
+            </button>
           </div>
 
-          <input type="hidden" id="lat" name="lat">
-          <input type="hidden" id="lon" name="lon">
-
-          <button type="submit" id="btn-fichar"
-                  class="btn btn-primary w-100"
-                  {% if not tiene_ubicaciones %}disabled{% endif %}>
-            Fichar
-          </button>
-
-          <div class="form-text mt-2">
-            El navegador te pedirá permiso para usar tu ubicación.
-          </div>
+          {% if tiene_flexible %}
+            <p class="mt-3 text-muted small">
+              Tienes activa una ubicación <strong>Flexible</strong>, por lo que
+              no se aplicará control de radio GPS, pero sí se registrarán tus
+              coordenadas.
+            </p>
+          {% endif %}
         </form>
       </div>
     </div>
 
-    <!-- CARD RESUMEN HORAS -->
     <div class="card mb-4">
       <div class="card-header">
-        Resumen de horas (últimos días)
+        Resumen de horas recientes
       </div>
       <div class="card-body">
         {% if resumen_horas %}
-          <ul class="list-group list-group-flush">
-            {% for r in resumen_horas[:7] %}
-              <li class="list-group-item d-flex justify-content-between">
-                <span>{{ r.dia }}</span>
-                <span class="fw-semibold">{{ r.horas }}</span>
+          <ul class="mb-0">
+            {% for item in resumen_horas %}
+              <li>
+                <strong>{{ item.dia.strftime("%d/%m/%Y") }}:</strong>
+                {{ item.horas }}
               </li>
             {% endfor %}
           </ul>
         {% else %}
-          <p class="text-muted mb-0">
-            Todavía no hay suficientes fichajes para calcular horas.
-          </p>
+          <p class="text-muted mb-0">Todavía no hay horas registradas.</p>
         {% endif %}
       </div>
     </div>
-    <!-- FIN RESUMEN HORAS -->
   </div>
 
-  <div class="col-lg-8">
+  <div class="col-lg-7">
     <div class="card">
       <div class="card-header">
-        Registros recientes
+        Tus fichajes recientes (intervalos)
       </div>
       <div class="card-body p-0">
-        <div class="table-responsive">
-          <table class="table table-striped table-hover mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>Usuario</th>
-              <th>Acción</th>
-              <th>Fecha y hora (UTC)</th>
-              <th>Ubicación</th>
-              <th class="text-end">Jornada</th>
-            </tr>
-          </thead>
-            <tbody>
-            {% for r in registros %}
-              <tr class="registro-row" data-registro-id="{{ r.id }}">
-                <td>{{ r.usuario.username }}</td>
-                <td>
-                  {% if r.accion == 'entrada' %}
-                    <span class="badge bg-success">Entrada</span>
-                  {% else %}
-                    <span class="badge bg-danger">Salida</span>
-                  {% endif %}
-                </td>
-                <td>{{ r.momento }}</td>
-                <td>
-                  {% set loc_reg = ubicacion_por_registro.get(r.id) %}
-                  {% if loc_reg %}
-                    <strong>{{ loc_reg }}</strong><br>
-                    {% if r.latitude is not none and r.longitude is not none %}
-                      <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
-                         class="link-primary" target="_blank">
-                        Ver en Google Maps
-                      </a>
+        {% if intervalos_usuario %}
+          <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Entrada</th>
+                  <th>Salida</th>
+                  <th>Ubicación</th>
+                </tr>
+              </thead>
+              <tbody>
+              {% for it in intervalos_usuario %}
+                <tr>
+                  <td>
+                    {% if it.entrada_momento %}
+                      {{ it.entrada_momento.strftime("%H:%M %d/%m/%Y") }}
                     {% else %}
-                      <span class="text-muted">Sin coordenadas</span>
+                      <span class="text-muted">Sin entrada</span>
                     {% endif %}
-                  {% elif r.latitude is not none and r.longitude is not none %}
-                    {{ "%.6f"|format(r.latitude) }},
-                    {{ "%.6f"|format(r.longitude) }}<br>
-                    <a href="https://www.google.com/maps?q={{ r.latitude }},{{ r.longitude }}"
-                       class="link-primary" target="_blank">
-                      Ver en Google Maps
-                    </a>
-                  {% else %}
-                    <span class="text-muted">Sin datos</span>
-                  {% endif %}
-                </td>
-                <td class="text-end align-top">
-                  <div class="d-flex flex-column align-items-end gap-1">
-                    {% if current_user.role == 'admin' %}
-                      <a href="{{ url_for('editar_registro', registro_id=r.id) }}"
-                         class="btn btn-sm btn-outline-primary">
-                        Editar
-                      </a>
-                    {% endif %}
-
-                    {% set ed = edicion_por_registro.get(r.id) %}
-                    {% if ed %}
-                      <span class="small text-warning fw-semibold edit-toggle"
-                            data-registro-id="{{ r.id }}"
-                            title="Editado por {{ ed.editor.username if ed.editor else 'desconocido' }} el {{ ed.edit_time }} desde {{ ed.editor_ip or 'IP desconocida' }}">
-                        Editado <span class="edit-toggle-sign" data-registro-id="{{ r.id }}">+</span>
-                      </span>
+                  </td>
+                  <td>
+                    {% if it.salida_momento %}
+                      {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
                     {% else %}
-                      <span class="small text-muted">Sin editar</span>
+                      <span class="text-muted">Sin salida</span>
                     {% endif %}
-                  </div>
-                </td>
-              </tr>
-
-              <tr id="edit-details-{{ r.id }}" class="edit-details-row" style="display: none;">
-                <td colspan="5" class="bg-light small">
-                  {% if r.ediciones and r.ediciones.count() %}
-                    <strong>Historial de ediciones:</strong>
-                    <ul class="mb-0 mt-2">
-                      {% for e in r.ediciones %}
-                        <li>
-                          <strong>{{ e.edit_time }}</strong> –
-                          editado por {{ e.editor.username if e.editor else 'usuario desconocido' }}
-                          desde {{ e.editor_ip or 'IP desconocida' }}.<br>
-                          Valores anteriores:
-                          acción <code>{{ e.old_accion }}</code>,
-                          fecha/hora <code>{{ e.old_momento }}</code>,
-                          lat <code>{{ e.old_latitude }}</code>,
-                          lon <code>{{ e.old_longitude }}</code>
-                        </li>
-                      {% endfor %}
-                    </ul>
-                  {% else %}
-                    <span class="text-muted">Este registro no tiene ediciones.</span>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-            {% if registros|length == 0 %}
-              <tr>
-                <td colspan="5" class="text-center text-muted py-3">
-                  No hay registros todavía.
-                </td>
-              </tr>
-            {% endif %}
-            </tbody>
-          </table>
-        </div>
+                  </td>
+                  <td>
+                    {% if it.label_entrada or it.label_salida %}
+                      {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
+                        {# Misma ubicación: una sola etiqueta clicable #}
+                        {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                          <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
+                             class="link-primary" target="_blank">
+                            {{ it.label_entrada }}
+                          </a>
+                        {% else %}
+                          {{ it.label_entrada }}
+                        {% endif %}
+                      {% else %}
+                        {# Distintas o falta alguna #}
+                        {% if it.label_entrada %}
+                          {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                            <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
+                               class="link-primary" target="_blank">
+                              {{ it.label_entrada }}
+                            </a>
+                          {% else %}
+                            {{ it.label_entrada }}
+                          {% endif %}
+                        {% endif %}
+                        {% if it.label_entrada and it.label_salida %} - {% endif %}
+                        {% if it.label_salida %}
+                          {% if it.salida_lat is not none and it.salida_lon is not none %}
+                            <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}"
+                               class="link-primary" target="_blank">
+                              {{ it.label_salida }}
+                            </a>
+                          {% else %}
+                            {{ it.label_salida }}
+                          {% endif %}
+                        {% endif %}
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">Sin datos</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted p-3 mb-0">
+            Todavía no hay fichajes registrados.
+          </p>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -213,66 +163,36 @@
 {% endblock %}
 
 {% block scripts %}
-{{ super() }}
 <script>
-let ubicacionLista = false;
+  function fichar(accion) {
+    const form = document.getElementById('form-fichar');
+    const accionInput = document.getElementById('accion');
+    const latInput = document.getElementById('lat');
+    const lonInput = document.getElementById('lon');
 
-function obtenerUbicacion() {
     if (!navigator.geolocation) {
-        alert("Tu navegador no soporta geolocalización.");
-        return;
+      alert("Tu navegador no soporta geolocalización.");
+      return;
     }
+
+    accionInput.value = accion;
 
     navigator.geolocation.getCurrentPosition(
-        (pos) => {
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
-
-            document.getElementById("lat").value = lat;
-            document.getElementById("lon").value = lon;
-
-            ubicacionLista = true;
-            console.log("Ubicación obtenida:", lat, lon);
-        },
-        (err) => {
-            console.error("Error al obtener ubicación:", err);
-            alert("No se pudo obtener tu ubicación. Código: " + err.code + " - " + err.message);
-        }
-    );
-}
-
-function validarUbicacion(event) {
-    if (!ubicacionLista) {
-        alert("Esperando la ubicación del dispositivo. Inténtalo de nuevo en unos segundos.");
-        event.preventDefault();
-        return false;
-    }
-    return true;
-}
-
-window.addEventListener("load", obtenerUbicacion);
-
-// Toggle historial de ediciones
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('.edit-toggle').forEach(function(el) {
-    el.addEventListener('click', function() {
-      const registroId = this.getAttribute('data-registro-id');
-      const detailsRow = document.getElementById('edit-details-' + registroId);
-      const signSpan = document.querySelector(
-        '.edit-toggle-sign[data-registro-id="' + registroId + '"]'
-      );
-
-      if (!detailsRow || !signSpan) return;
-
-      if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
-        detailsRow.style.display = 'table-row';
-        signSpan.textContent = '-';
-      } else {
-        detailsRow.style.display = 'none';
-        signSpan.textContent = '+';
+      function(pos) {
+        latInput.value = pos.coords.latitude;
+        lonInput.value = pos.coords.longitude;
+        form.submit();
+      },
+      function(err) {
+        console.error(err);
+        alert("No se pudo obtener tu ubicación. Revisa los permisos de geolocalización.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
       }
-    });
-  });
-});
+    );
+  }
 </script>
 {% endblock %}

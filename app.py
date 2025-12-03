@@ -383,22 +383,17 @@ def generar_informe():
 @app.route("/")
 @login_required
 def index():
-    # Si es admin, ve todos los registros; si no, solo los suyos
-    if current_user.role == "admin":
-        registros = Registro.query.order_by(Registro.momento.desc()).all()
-    else:
-        registros = (
-            Registro.query.filter_by(usuario_id=current_user.id)
-            .order_by(Registro.momento.desc())
-            .all()
-        )
-
-    # Resumen de horas para el usuario actual (igual que antes)
+    # Registros del usuario actual (para tabla y resumen)
     registros_usuario = (
         Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.asc())
         .all()
     )
+
+    # Intervalos Entrada/Salida SOLO del usuario actual
+    intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
+
+    # Resumen de horas para el usuario actual (puede seguir siendo por registros “planos”)
     horas_por_dia = calcular_horas_trabajadas(registros_usuario)
     resumen_horas = [
         {
@@ -408,51 +403,18 @@ def index():
         for dia, td in sorted(horas_por_dia.items(), key=lambda x: x[0], reverse=True)
     ]
 
-    # Ubicaciones múltiples del usuario (usamos los helpers que ya tienes)
+    # Ubicaciones múltiples del usuario (para el formulario y mensajes)
     ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
-    # Mapas de ubicación y jornada extra/defecto (por ahora solo ubicación “bonita”)
-    ubicacion_por_registro, extra_por_registro = construir_mapas_extra_y_ubicacion(
-        registros
-    )
-
-    # Mapa de ediciones (última edición por registro, si existe relación)
-    edicion_por_registro = {}
-    if hasattr(Registro, "ediciones"):
-        for r in registros:
-            try:
-                eds = r.ediciones
-                ultima = None
-
-                # Si es relación dinámica (Query)
-                if hasattr(eds, "order_by") and hasattr(eds, "first"):
-                    try:
-                        ultima = eds.order_by(db.desc("edit_time")).first()
-                    except Exception:
-                        ultima = eds.first()
-                else:
-                    # Lo tratamos como lista/iterable
-                    eds_list = list(eds)
-                    if eds_list:
-                        ultima = eds_list[-1]
-
-                if ultima:
-                    edicion_por_registro[r.id] = ultima
-            except Exception:
-                continue
-
     return render_template(
         "index.html",
-        registros=registros,
+        intervalos_usuario=intervalos_usuario,
         resumen_horas=resumen_horas,
         ubicaciones_usuario=ubicaciones_usuario,
         tiene_ubicaciones=tiene_ubicaciones,
         tiene_flexible=tiene_flexible,
-        ubicacion_por_registro=ubicacion_por_registro,
-        extra_por_registro=extra_por_registro,
-        edicion_por_registro=edicion_por_registro,
     )
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
@@ -1003,11 +965,10 @@ def construir_intervalo(entrada, salida, ubicaciones_definidas):
         row_id=row_id,
     )
 
-
 def agrupar_registros_en_intervalos(registros):
     """
-    A partir de una lista de Registro (ya filtrada por usuario/fechas/ubicación),
-    agrupa en intervalos Entrada/Salida por usuario y día.
+    A partir de una lista de Registro (ya filtrada),
+    agrupa en intervalos Entrada/Salida por usuario, sin cortar por día.
 
     Devuelve una lista de objetos (SimpleNamespace) con la estructura
     generada por construir_intervalo().
@@ -1017,16 +978,15 @@ def agrupar_registros_en_intervalos(registros):
     # Todas las ubicaciones (excepto "Flexible") para resolver nombres
     ubicaciones_definidas = Location.query.filter(Location.name != "Flexible").all()
 
-    # Agrupamos por (usuario_id, fecha)
-    regs_por_usuario_y_dia = defaultdict(list)
+    # Agrupamos solo por usuario
+    regs_por_usuario = defaultdict(list)
     for r in registros:
         if r.usuario_id is None or r.momento is None:
             continue
-        fecha = r.momento.date()
-        regs_por_usuario_y_dia[(r.usuario_id, fecha)].append(r)
+        regs_por_usuario[r.usuario_id].append(r)
 
-    for (uid, fecha), regs_dia in regs_por_usuario_y_dia.items():
-        regs_ordenados = sorted(regs_dia, key=lambda x: x.momento)
+    for uid, regs_usuario in regs_por_usuario.items():
+        regs_ordenados = sorted(regs_usuario, key=lambda x: x.momento)
         entrada_actual = None
 
         for r in regs_ordenados:
@@ -1035,21 +995,30 @@ def agrupar_registros_en_intervalos(registros):
                     entrada_actual = r
                 else:
                     # Teníamos una entrada sin salida -> intervalo huérfano
-                    intervalos.append(construir_intervalo(entrada_actual, None, ubicaciones_definidas))
+                    intervalos.append(
+                        construir_intervalo(entrada_actual, None, ubicaciones_definidas)
+                    )
                     entrada_actual = r
+
             elif r.accion == "salida":
                 if entrada_actual is not None:
-                    intervalos.append(construir_intervalo(entrada_actual, r, ubicaciones_definidas))
+                    intervalos.append(
+                        construir_intervalo(entrada_actual, r, ubicaciones_definidas)
+                    )
                     entrada_actual = None
                 else:
                     # Salida sin entrada previa en el filtro
-                    intervalos.append(construir_intervalo(None, r, ubicaciones_definidas))
+                    intervalos.append(
+                        construir_intervalo(None, r, ubicaciones_definidas)
+                    )
 
-        # Si al final del día queda una entrada sin salida, también la añadimos
+        # Si al final quedan entradas sin salida, también las añadimos
         if entrada_actual is not None:
-            intervalos.append(construir_intervalo(entrada_actual, None, ubicaciones_definidas))
+            intervalos.append(
+                construir_intervalo(entrada_actual, None, ubicaciones_definidas)
+            )
 
-    # Orden global por momento de entrada (o salida si no hay entrada)
+    # Orden global por momento (entrada si hay, si no salida), descendente
     def key_intervalo(it):
         if it.entrada_momento is not None:
             return it.entrada_momento
