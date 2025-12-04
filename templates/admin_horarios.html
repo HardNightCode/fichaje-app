@@ -156,7 +156,7 @@
                   <th>Nombre</th>
                   <th>Jornada</th>
                   <th>Descanso</th>
-                  <th class="text-end">Acciones</th>
+                  <th style="width: 1%;">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,44 +164,28 @@
                 <tr>
                   <td>{{ h.name }}</td>
                   <td>
-                    {% if not h.use_per_day %}
-                      {% if h.start_time and h.end_time %}
-                        {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
-                      {% else %}
-                        <span class="text-muted">No definido</span>
-                      {% endif %}
+                    {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
+                  </td>
+                  <td>
+                    {% if h.break_type == 'none' %}
+                      Sin descanso
+                    {% elif h.break_type == 'fixed' %}
+                      Fijo:
+                      {{ h.break_start.strftime('%H:%M') }} - {{ h.break_end.strftime('%H:%M') }}
+                    {% elif h.break_type == 'flexible' %}
+                      Flexible: {{ h.break_minutes }} min
                     {% else %}
-                      {% set nombres_dia = ['L', 'M', 'X', 'J', 'V', 'S', 'D'] %}
-                      <ul class="mb-0 small">
-                        {% for d in h.days %}
-                          <li>
-                            {{ nombres_dia[d.day_of_week] }}:
-                            {{ d.start_time.strftime('%H:%M') }} - {{ d.end_time.strftime('%H:%M') }}
-                          </li>
-                        {% endfor %}
-                      </ul>
+                      <span class="text-muted">Desconocido</span>
                     {% endif %}
                   </td>
                   <td>
-                    {% if not h.use_per_day %}
-                      {% if h.break_type == 'none' %}
-                        Sin descanso
-                      {% elif h.break_type == 'fixed' %}
-                        Fijo: {{ h.break_start.strftime('%H:%M') }} - {{ h.break_end.strftime('%H:%M') }}
-                      {% elif h.break_type == 'flexible' %}
-                        Flexible: {{ h.break_minutes }} min
-                      {% else %}
-                        <span class="text-muted">Desconocido</span>
-                      {% endif %}
-                    {% else %}
-                      <span class="text-muted small">Configurado por días</span>
-                    {% endif %}
-                  </td>
-                  <td class="text-end">
-                    <a href="{{ url_for('editar_horario', schedule_id=h.id) }}"
-                       class="btn btn-sm btn-outline-primary">
-                      Editar
-                    </a>
+                    <form action="{{ url_for('eliminar_horario', schedule_id=h.id) }}"
+                          method="post"
+                          onsubmit="return confirm('¿Seguro que quieres eliminar este horario? Esta acción no se puede deshacer.');">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        Eliminar
+                      </button>
+                    </form>
                   </td>
                 </tr>
               {% endfor %}

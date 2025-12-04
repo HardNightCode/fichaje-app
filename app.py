@@ -778,6 +778,40 @@ def admin_horarios():
     horarios = Schedule.query.order_by(Schedule.name).all()
     return render_template("admin_horarios.html", horarios=horarios)
 
+@app.route("/admin/horarios/<int:schedule_id>/eliminar", methods=["POST"])
+@admin_required
+def eliminar_horario(schedule_id):
+    """
+    Elimina un horario, siempre que no esté asignado a ningún usuario.
+    """
+    horario = Schedule.query.get_or_404(schedule_id)
+
+    # Si el backref es dinámico, horario.users es un Query
+    try:
+        asignados = horario.users.count()
+    except Exception:
+        # Por si el lazy no fuera "dynamic"
+        asignados = len(horario.users or [])
+
+    if asignados > 0:
+        flash(
+            "No se puede eliminar el horario porque está asignado a uno o más usuarios.",
+            "error",
+        )
+        return redirect(url_for("admin_horarios"))
+
+    # Por seguridad, limpiamos también la tabla intermedia explícita
+    from app import UserSchedule  # si ya está definido en este fichero, no hace falta importar
+
+    UserSchedule.query.filter_by(schedule_id=schedule_id).delete(
+        synchronize_session=False
+    )
+
+    db.session.delete(horario)
+    db.session.commit()
+    flash("Horario eliminado correctamente.", "success")
+    return redirect(url_for("admin_horarios"))
+
 @app.route("/admin/horarios/<int:schedule_id>/editar", methods=["GET", "POST"])
 @admin_required
 def editar_horario(schedule_id):
