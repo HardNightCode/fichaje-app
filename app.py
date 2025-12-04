@@ -1311,11 +1311,21 @@ def agrupar_registros_en_intervalos(registros):
 
     Devuelve una lista de objetos (SimpleNamespace) con la estructura
     generada por construir_intervalo().
+
+    Además, hace una limpieza extra:
+      - Si para un mismo usuario y día existe un intervalo COMPLETO
+        (entrada y salida) y, además, intervalos "huérfanos" cuya
+        entrada o salida coinciden EXACTAMENTE en fecha/hora con la
+        entrada/salida del completo, esos huérfanos se descartan.
+        Esto evita que, tras ediciones, aparezcan filas
+        "Sin entrada" / "Sin salida" duplicadas.
     """
     intervalos = []
 
     # Todas las ubicaciones (excepto "Flexible") para resolver nombres
-    ubicaciones_definidas = Location.query.filter(Location.name != "Flexible").all()
+    ubicaciones_definidas = Location.query.filter(
+        Location.name != "Flexible"
+    ).all()
 
     # Agrupamos solo por usuario
     regs_por_usuario = defaultdict(list)
@@ -1324,6 +1334,7 @@ def agrupar_registros_en_intervalos(registros):
             continue
         regs_por_usuario[r.usuario_id].append(r)
 
+    # --- Emparejado básico entrada/salida ---
     for uid, regs_usuario in regs_por_usuario.items():
         regs_ordenados = sorted(regs_usuario, key=lambda x: x.momento)
         entrada_actual = None
@@ -1335,27 +1346,104 @@ def agrupar_registros_en_intervalos(registros):
                 else:
                     # Teníamos una entrada sin salida -> intervalo huérfano
                     intervalos.append(
-                        construir_intervalo(entrada_actual, None, ubicaciones_definidas)
+                        construir_intervalo(
+                            entrada_actual, None, ubicaciones_definidas
+                        )
                     )
                     entrada_actual = r
 
             elif r.accion == "salida":
                 if entrada_actual is not None:
                     intervalos.append(
-                        construir_intervalo(entrada_actual, r, ubicaciones_definidas)
+                        construir_intervalo(
+                            entrada_actual, r, ubicaciones_definidas
+                        )
                     )
                     entrada_actual = None
                 else:
                     # Salida sin entrada previa en el filtro
                     intervalos.append(
-                        construir_intervalo(None, r, ubicaciones_definidas)
+                        construir_intervalo(
+                            None, r, ubicaciones_definidas
+                        )
                     )
 
         # Si al final quedan entradas sin salida, también las añadimos
         if entrada_actual is not None:
             intervalos.append(
-                construir_intervalo(entrada_actual, None, ubicaciones_definidas)
+                construir_intervalo(
+                    entrada_actual, None, ubicaciones_definidas
+                )
             )
+
+    # --- Limpieza de duplicados por usuario + día ---
+    # Clave: (usuario_id, fecha)
+    grupos = defaultdict(list)
+    for it in intervalos:
+        if it.usuario is not None:
+            uid = it.usuario.id
+        else:
+            uid = None
+
+        if it.entrada_momento is not None:
+            dia = it.entrada_momento.date()
+        elif it.salida_momento is not None:
+            dia = it.salida_momento.date()
+        else:
+            dia = None
+
+        grupos[(uid, dia)].append(it)
+
+    intervalos_limpios = []
+
+    for (uid, dia), ints in grupos.items():
+        # Intervalos completos (tienen entrada y salida)
+        completos = [
+            it for it in ints
+            if it.entrada_momento is not None and it.salida_momento is not None
+        ]
+
+        # Si no hay completos, no hay nada que limpiar
+        if not completos:
+            intervalos_limpios.extend(ints)
+            continue
+
+        # Conjuntos de horas de entrada y salida de intervalos completos
+        entradas_completas = {
+            it.entrada_momento for it in completos if it.entrada_momento
+        }
+        salidas_completas = {
+            it.salida_momento for it in completos if it.salida_momento
+        }
+
+        for it in ints:
+            # Dejamos siempre los completos
+            if it in completos:
+                intervalos_limpios.append(it)
+                continue
+
+            descartar = False
+
+            # Huérfano con solo entrada, que coincide
+            # exactamente con una entrada de intervalo completo
+            if (
+                it.entrada_momento is not None
+                and it.salida_momento is None
+                and it.entrada_momento in entradas_completas
+            ):
+                descartar = True
+
+            # Huérfano con solo salida, que coincide
+            # exactamente con una salida de intervalo completo
+            if (
+                it.salida_momento is not None
+                and it.entrada_momento is None
+                and it.salida_momento in salidas_completas
+            ):
+                descartar = True
+
+            if not descartar:
+                intervalos_limpios.append(it)
 
     # Orden global por momento (entrada si hay, si no salida), descendente
     def key_intervalo(it):
@@ -1366,8 +1454,8 @@ def agrupar_registros_en_intervalos(registros):
         else:
             return datetime.min
 
-    intervalos.sort(key=key_intervalo, reverse=True)
-    return intervalos
+    intervalos_limpios.sort(key=key_intervalo, reverse=True)
+    return intervalos_limpios
 
 @app.route("/fichar", methods=["POST"])
 @login_required
