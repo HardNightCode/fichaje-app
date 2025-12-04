@@ -644,21 +644,20 @@ def admin_horarios():
         * Horario por días (cada día con su inicio/fin/descanso).
     """
     if request.method == "POST":
-        try:
-            name = request.form.get("name", "").strip()
-            use_per_day = bool(request.form.get("use_per_day"))
+        name = request.form.get("name", "").strip()
+        use_per_day = bool(request.form.get("use_per_day"))
 
-            if not name:
-                flash("El nombre del horario es obligatorio.", "error")
-                return redirect(url_for("admin_horarios"))
+        if not name:
+            flash("El nombre del horario es obligatorio.", "error")
+            return redirect(url_for("admin_horarios"))
 
-            # Valores por defecto (modo simple)
-            start_time = None
-            end_time = None
-            break_type = "none"
-            break_start = None
-            break_end = None
-            break_minutes = None
+        # Valores por defecto
+        start_time = None
+        end_time = None
+        break_type = "none"
+        break_start = None
+        break_end = None
+        break_minutes = None
 
         # --------- MODO SIMPLE (no por días) ----------
         if not use_per_day:
@@ -703,8 +702,8 @@ def admin_horarios():
 
         # --- Compatibilidad con BD: columnas NOT NULL en modo por días ---
         if use_per_day:
-            # Estos valores NO se usan realmente (el horario lo marcan los días),
-            # pero PostgreSQL exige que no sean NULL.
+            # Estos valores NO se usan realmente (el horario real está en ScheduleDay),
+            # pero PostgreSQL exige que no sean NULL (NOT NULL en start_time/end_time).
             start_time = time(0, 0)
             end_time = time(23, 59)
             break_type = "none"
@@ -726,111 +725,93 @@ def admin_horarios():
         db.session.add(horario)
         db.session.flush()  # para tener horario.id
 
-            # --------- MODO POR DÍAS ----------
-            if use_per_day:
-                dias = [
-                    ("mon", 0),
-                    ("tue", 1),
-                    ("wed", 2),
-                    ("thu", 3),
-                    ("fri", 4),
-                    ("sat", 5),
-                    ("sun", 6),
-                ]
+        # --------- MODO POR DÍAS ----------
+        if use_per_day:
+            dias = [
+                ("mon", 0),
+                ("tue", 1),
+                ("wed", 2),
+                ("thu", 3),
+                ("fri", 4),
+                ("sat", 5),
+                ("sun", 6),
+            ]
 
-                tiene_algun_dia = False
+            tiene_algun_dia = False
 
-                for prefix, dow in dias:
-                    s_str = request.form.get(f"{prefix}_start", "").strip()
-                    e_str = request.form.get(f"{prefix}_end", "").strip()
-                    if not s_str or not e_str:
-                        # Día sin horario -> no se trabaja ese día
-                        continue
+            for prefix, dow in dias:
+                s_str = request.form.get(f"{prefix}_start", "").strip()
+                e_str = request.form.get(f"{prefix}_end", "").strip()
+                if not s_str or not e_str:
+                    # Día sin horario -> se interpreta como NO laborable
+                    continue
 
-                    try:
-                        s_time = datetime.strptime(s_str, "%H:%M").time()
-                        e_time = datetime.strptime(e_str, "%H:%M").time()
-                    except ValueError:
-                        flash(
-                            f"Hora inválida en el día {prefix.upper()} (formato HH:MM).",
-                            "error",
-                        )
-                        db.session.rollback()
-                        return redirect(url_for("admin_horarios"))
-
-                    b_type = request.form.get(f"{prefix}_break_type", "none")
-                    bs = be = None
-                    bmin = None
-
-                    if b_type == "fixed":
-                        bs_str = request.form.get(f"{prefix}_break_start", "").strip()
-                        be_str = request.form.get(f"{prefix}_break_end", "").strip()
-                        if not bs_str or not be_str:
-                            flash(
-                                "Para descanso fijo debes indicar inicio y fin de descanso en cada día.",
-                                "error",
-                            )
-                            db.session.rollback()
-                            return redirect(url_for("admin_horarios"))
-                        try:
-                            bs = datetime.strptime(bs_str, "%H:%M").time()
-                            be = datetime.strptime(be_str, "%H:%M").time()
-                        except ValueError:
-                            flash(
-                                "Las horas de descanso diario deben tener formato HH:MM.",
-                                "error",
-                            )
-                            db.session.rollback()
-                            return redirect(url_for("admin_horarios"))
-                    elif b_type == "flexible":
-                        bmin_str = request.form.get(f"{prefix}_break_minutes", "").strip()
-                        if not bmin_str:
-                            flash(
-                                "Para descanso flexible debes indicar los minutos de descanso en cada día.",
-                                "error",
-                            )
-                            db.session.rollback()
-                            return redirect(url_for("admin_horarios"))
-                        try:
-                            bmin = int(bmin_str)
-                        except ValueError:
-                            flash(
-                                "Los minutos de descanso diario deben ser numéricos.",
-                                "error",
-                            )
-                            db.session.rollback()
-                            return redirect(url_for("admin_horarios"))
-
-                    dia_obj = ScheduleDay(
-                        schedule_id=horario.id,
-                        day_of_week=dow,
-                        start_time=s_time,
-                        end_time=e_time,
-                        break_type=b_type,
-                        break_start=bs,
-                        break_end=be,
-                        break_minutes=bmin,
-                    )
-                    db.session.add(dia_obj)
-                    tiene_algun_dia = True
-
-                if not tiene_algun_dia:
-                    flash(
-                        "En modo por días, al menos un día debe tener horario.",
-                        "error",
-                    )
+                try:
+                    s_time = datetime.strptime(s_str, "%H:%M").time()
+                    e_time = datetime.strptime(e_str, "%H:%M").time()
+                except ValueError:
+                    flash(f"Hora inválida en el día {prefix.upper()} (formato HH:MM).", "error")
                     db.session.rollback()
                     return redirect(url_for("admin_horarios"))
 
+                b_type = request.form.get(f"{prefix}_break_type", "none")
+                bs = be = None
+                bmin = None
+
+                if b_type == "fixed":
+                    bs_str = request.form.get(f"{prefix}_break_start", "").strip()
+                    be_str = request.form.get(f"{prefix}_break_end", "").strip()
+                    if not bs_str or not be_str:
+                        flash("Para descanso fijo debes indicar inicio y fin de descanso en cada día.", "error")
+                        db.session.rollback()
+                        return redirect(url_for("admin_horarios"))
+                    try:
+                        bs = datetime.strptime(bs_str, "%H:%M").time()
+                        be = datetime.strptime(be_str, "%H:%M").time()
+                    except ValueError:
+                        flash("Las horas de descanso diario deben tener formato HH:MM.", "error")
+                        db.session.rollback()
+                        return redirect(url_for("admin_horarios"))
+                elif b_type == "flexible":
+                    bmin_str = request.form.get(f"{prefix}_break_minutes", "").strip()
+                    if not bmin_str:
+                        flash("Para descanso flexible debes indicar los minutos de descanso en cada día.", "error")
+                        db.session.rollback()
+                        return redirect(url_for("admin_horarios"))
+                    try:
+                        bmin = int(bmin_str)
+                    except ValueError:
+                        flash("Los minutos de descanso diario deben ser numéricos.", "error")
+                        db.session.rollback()
+                        return redirect(url_for("admin_horarios"))
+
+                dia_obj = ScheduleDay(
+                    schedule_id=horario.id,
+                    day_of_week=dow,
+                    start_time=s_time,
+                    end_time=e_time,
+                    break_type=b_type,
+                    break_start=bs,
+                    break_end=be,
+                    break_minutes=bmin,
+                )
+                db.session.add(dia_obj)
+                tiene_algun_dia = True
+
+            if not tiene_algun_dia:
+                flash("En modo por días, al menos un día debe tener horario.", "error")
+                db.session.rollback()
+                return redirect(url_for("admin_horarios"))
+
+        try:
             db.session.commit()
             flash("Horario creado correctamente.", "success")
-            return redirect(url_for("admin_horarios"))
-
         except Exception as e:
-            app.logger.exception("Error al crear horario: %s", e)
+            app.logger.error(f"Error al crear horario: {e}")
             db.session.rollback()
             flash("Se ha producido un error al crear el horario.", "error")
-            return redirect(url_for("admin_horarios"))
+
+        return redirect(url_for("admin_horarios"))
 
     # GET: listar todos los horarios
     horarios = Schedule.query.order_by(Schedule.name).all()
