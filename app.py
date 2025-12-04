@@ -660,60 +660,71 @@ def admin_horarios():
             break_end = None
             break_minutes = None
 
-            # --------- MODO SIMPLE (no por días) ----------
-            if not use_per_day:
-                start_time_str = request.form.get("start_time", "").strip()
-                end_time_str = request.form.get("end_time", "").strip()
-                break_type = request.form.get("break_type", "none")
+        # --------- MODO SIMPLE (no por días) ----------
+        if not use_per_day:
+            start_time_str = request.form.get("start_time", "").strip()
+            end_time_str = request.form.get("end_time", "").strip()
+            break_type = request.form.get("break_type", "none")
 
-                break_start_str = request.form.get("break_start", "").strip()
-                break_end_str = request.form.get("break_end", "").strip()
-                break_minutes_str = request.form.get("break_minutes", "").strip()
+            break_start_str = request.form.get("break_start", "").strip()
+            break_end_str = request.form.get("break_end", "").strip()
+            break_minutes_str = request.form.get("break_minutes", "").strip()
 
-                if not start_time_str or not end_time_str:
-                    flash("Inicio y fin de jornada son obligatorios en modo simple.", "error")
+            if not start_time_str or not end_time_str:
+                flash("Inicio y fin de jornada son obligatorios en modo simple.", "error")
+                return redirect(url_for("admin_horarios"))
+
+            try:
+                start_time = datetime.strptime(start_time_str, "%H:%M").time()
+                end_time = datetime.strptime(end_time_str, "%H:%M").time()
+            except ValueError:
+                flash("Las horas de inicio y fin deben tener formato HH:MM.", "error")
+                return redirect(url_for("admin_horarios"))
+
+            if break_type == "fixed":
+                if not break_start_str or not break_end_str:
+                    flash("Para descanso fijo debes indicar inicio y fin de descanso.", "error")
                     return redirect(url_for("admin_horarios"))
-
                 try:
-                    start_time = datetime.strptime(start_time_str, "%H:%M").time()
-                    end_time = datetime.strptime(end_time_str, "%H:%M").time()
+                    break_start = datetime.strptime(break_start_str, "%H:%M").time()
+                    break_end = datetime.strptime(break_end_str, "%H:%M").time()
                 except ValueError:
-                    flash("Las horas de inicio y fin deben tener formato HH:MM.", "error")
+                    flash("Las horas de descanso deben tener formato HH:MM.", "error")
+                    return redirect(url_for("admin_horarios"))
+            elif break_type == "flexible":
+                if not break_minutes_str:
+                    flash("Para descanso flexible debes indicar los minutos de descanso.", "error")
+                    return redirect(url_for("admin_horarios"))
+                try:
+                    break_minutes = int(break_minutes_str)
+                except ValueError:
+                    flash("Los minutos de descanso deben ser numéricos.", "error")
                     return redirect(url_for("admin_horarios"))
 
-                if break_type == "fixed":
-                    if not break_start_str or not break_end_str:
-                        flash("Para descanso fijo debes indicar inicio y fin de descanso.", "error")
-                        return redirect(url_for("admin_horarios"))
-                    try:
-                        break_start = datetime.strptime(break_start_str, "%H:%M").time()
-                        break_end = datetime.strptime(break_end_str, "%H:%M").time()
-                    except ValueError:
-                        flash("Las horas de descanso deben tener formato HH:MM.", "error")
-                        return redirect(url_for("admin_horarios"))
-                elif break_type == "flexible":
-                    if not break_minutes_str:
-                        flash("Para descanso flexible debes indicar los minutos de descanso.", "error")
-                        return redirect(url_for("admin_horarios"))
-                    try:
-                        break_minutes = int(break_minutes_str)
-                    except ValueError:
-                        flash("Los minutos de descanso deben ser numéricos.", "error")
-                        return redirect(url_for("admin_horarios"))
+        # --- Compatibilidad con BD: columnas NOT NULL en modo por días ---
+        if use_per_day:
+            # Estos valores NO se usan realmente (el horario lo marcan los días),
+            # pero PostgreSQL exige que no sean NULL.
+            start_time = time(0, 0)
+            end_time = time(23, 59)
+            break_type = "none"
+            break_start = None
+            break_end = None
+            break_minutes = None
 
-            # Creamos el Schedule (sin días aún)
-            horario = Schedule(
-                name=name,
-                start_time=start_time,
-                end_time=end_time,
-                break_type=break_type,
-                break_start=break_start,
-                break_end=break_end,
-                break_minutes=break_minutes,
-                use_per_day=use_per_day,
-            )
-            db.session.add(horario)
-            db.session.flush()  # para tener horario.id
+        # Creamos el Schedule (sin días aún)
+        horario = Schedule(
+            name=name,
+            start_time=start_time,
+            end_time=end_time,
+            break_type=break_type,
+            break_start=break_start,
+            break_end=break_end,
+            break_minutes=break_minutes,
+            use_per_day=use_per_day,
+        )
+        db.session.add(horario)
+        db.session.flush()  # para tener horario.id
 
             # --------- MODO POR DÍAS ----------
             if use_per_day:
@@ -947,9 +958,10 @@ def editar_horario(schedule_id):
 
             # --------- MODO POR DÍAS ----------
             else:
-                # En modo por días, el horario global no se usa
-                horario.start_time = None
-                horario.end_time = None
+                # En modo por días, el horario global no se usa realmente,
+                # pero la BD exige que no sean NULL (NOT NULL en PostgreSQL).
+                horario.start_time = time(0, 0)
+                horario.end_time = time(23, 59)
                 horario.break_type = "none"
                 horario.break_start = None
                 horario.break_end = None

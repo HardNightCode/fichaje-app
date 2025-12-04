@@ -3,10 +3,16 @@
 {% block title %}Horarios - Administración{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Gestión de horarios</h1>
+<h1 class="mb-4 text-center">Gestión de horarios</h1>
 
-<div class="row">
-  <!-- Crear / configurar horario -->
+<style>
+  .field-disabled {
+    background-color: #e9ecef !important;
+    cursor: not-allowed;
+  }
+</style>
+
+<div class="row justify-content-center">
   <div class="col-lg-6">
     <div class="card mb-4">
       <div class="card-header">
@@ -27,14 +33,10 @@
                 Configurar horario distinto por días de la semana
               </label>
             </div>
-            <small class="text-muted">
-              Si se activa, podrás definir inicio/fin/descanso para cada día.
-              Los días sin horario se interpretan como no laborables.
-            </small>
           </div>
 
-          <!-- MODO SIMPLE (mismas horas todos los días) -->
-          <div class="config-global row g-3">
+          <!-- BLOQUE MODO SIMPLE (mismas horas todos los días) -->
+          <div id="bloque_simple">
             <div class="col-md-6">
               <label class="form-label">Inicio jornada</label>
               <input type="time" name="start_time" class="form-control">
@@ -46,93 +48,107 @@
 
             <div class="col-12">
               <label class="form-label">Descanso</label>
-              <select name="break_type" id="break_type_global" class="form-select">
+              <select name="break_type" id="break_type_simple" class="form-select">
                 <option value="none">Sin descanso</option>
                 <option value="fixed">Descanso fijo</option>
                 <option value="flexible">Descanso flexible</option>
               </select>
             </div>
 
-            <div class="col-md-6 descanso-fijo-global d-none">
+            <div class="col-md-6 descanso-simple-fijo d-none">
               <label class="form-label">Inicio descanso fijo</label>
               <input type="time" name="break_start" class="form-control">
             </div>
-            <div class="col-md-6 descanso-fijo-global d-none">
+            <div class="col-md-6 descanso-simple-fijo d-none">
               <label class="form-label">Fin descanso fijo</label>
               <input type="time" name="break_end" class="form-control">
             </div>
 
-            <div class="col-md-6 descanso-flexible-global d-none">
+            <div class="col-md-6 descanso-simple-flexible d-none">
               <label class="form-label">Descanso flexible (minutos)</label>
               <input type="number" min="0" name="break_minutes" class="form-control">
             </div>
           </div>
 
-          <!-- MODO POR DÍAS -->
-          <div class="config-por-dia d-none">
-            <p class="mb-2">
-              Define el horario por día. Si dejas un día sin inicio/fin,
-              se considerará día no laborable.
-            </p>
-
-            {% set dias = [
-              (0, 'Lunes', 'mon'),
-              (1, 'Martes', 'tue'),
-              (2, 'Miércoles', 'wed'),
-              (3, 'Jueves', 'thu'),
-              (4, 'Viernes', 'fri'),
-              (5, 'Sábado', 'sat'),
-              (6, 'Domingo', 'sun'),
-            ] %}
-
+          <!-- BLOQUE MODO POR DÍAS -->
+          <div id="bloque_dias" class="d-none mt-3">
             <div class="table-responsive">
-              <table class="table table-sm align-middle">
+              <table class="table table-sm align-middle text-center">
                 <thead class="table-light">
                   <tr>
                     <th>Día</th>
                     <th>Inicio</th>
                     <th>Fin</th>
-                    <th>Tipo descanso</th>
+                    <th>
+                      Descanso
+                      <button type="button"
+                              class="btn btn-sm btn-outline-secondary ms-2"
+                              title="Copiar configuración del lunes al resto de días"
+                              onclick="copiarPrimerDia()">
+                        &#8595;
+                      </button>
+                    </th>
                     <th>Inicio descanso</th>
                     <th>Fin descanso</th>
                     <th>Min. descanso</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for idx, nombre, key in dias %}
+                  {% set dias = [
+                    ('mon', 'Lunes'),
+                    ('tue', 'Martes'),
+                    ('wed', 'Miércoles'),
+                    ('thu', 'Jueves'),
+                    ('fri', 'Viernes'),
+                    ('sat', 'Sábado'),
+                    ('sun', 'Domingo')
+                  ] %}
+                  {% for prefix, label in dias %}
                   <tr>
-                    <td>{{ nombre }}</td>
+                    <td>{{ label }}</td>
                     <td>
-                      <input type="time" name="{{ key }}_start" class="form-control form-control-sm">
+                      <input type="time" name="{{ prefix }}_start" id="{{ prefix }}_start" class="form-control form-control-sm">
                     </td>
                     <td>
-                      <input type="time" name="{{ key }}_end" class="form-control form-control-sm">
+                      <input type="time" name="{{ prefix }}_end" id="{{ prefix }}_end" class="form-control form-control-sm">
                     </td>
                     <td>
-                      <select name="{{ key }}_break_type" class="form-select form-select-sm">
+                      <select name="{{ prefix }}_break_type"
+                              id="{{ prefix }}_break_type"
+                              class="form-select form-select-sm"
+                              onchange="actualizarCamposDescansoDia('{{ prefix }}')">
                         <option value="none">Sin descanso</option>
-                        <option value="fixed">Fijo</option>
-                        <option value="flexible">Flexible</option>
+                        <option value="fixed">Descanso fijo</option>
+                        <option value="flexible">Descanso flexible</option>
                       </select>
                     </td>
                     <td>
-                      <input type="time" name="{{ key }}_break_start" class="form-control form-control-sm">
+                      <input type="time" name="{{ prefix }}_break_start"
+                             id="{{ prefix }}_break_start"
+                             class="form-control form-control-sm">
                     </td>
                     <td>
-                      <input type="time" name="{{ key }}_break_end" class="form-control form-control-sm">
+                      <input type="time" name="{{ prefix }}_break_end"
+                             id="{{ prefix }}_break_end"
+                             class="form-control form-control-sm">
                     </td>
                     <td>
-                      <input type="number" min="0" name="{{ key }}_break_minutes" class="form-control form-control-sm">
+                      <input type="number" min="0" name="{{ prefix }}_break_minutes"
+                             id="{{ prefix }}_break_minutes"
+                             class="form-control form-control-sm">
                     </td>
                   </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
+            <p class="text-muted small mb-0">
+              Cualquier día sin hora de inicio/fin se interpretará como <strong>no laborable</strong>.
+            </p>
           </div>
 
-          <div class="col-12">
-            <button type="submit" class="btn btn-success">
+          <div class="col-12 mt-3 text-center">
+            <button type="submit" class="btn btn-success px-4">
               Guardar horario
             </button>
           </div>
@@ -141,7 +157,6 @@
     </div>
   </div>
 
-  <!-- Listado de horarios -->
   <div class="col-lg-6">
     <div class="card mb-4">
       <div class="card-header">
@@ -150,13 +165,13 @@
       <div class="card-body">
         {% if horarios %}
           <div class="table-responsive">
-            <table class="table table-striped table-sm align-middle mb-0">
+            <table class="table table-striped table-sm align-middle mb-0 text-center">
               <thead class="table-light">
                 <tr>
                   <th>Nombre</th>
-                  <th>Jornada</th>
-                  <th>Descanso</th>
-                  <th style="width: 1%;">Acciones</th>
+                  <th>Tipo</th>
+                  <th>Detalle</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,31 +179,31 @@
                 <tr>
                   <td>{{ h.name }}</td>
                   <td>
-                    {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
-                  </td>
-                  <td>
-                    {% if h.break_type == 'none' %}
-                      Sin descanso
-                    {% elif h.break_type == 'fixed' %}
-                      Fijo:
-                      {{ h.break_start.strftime('%H:%M') }} - {{ h.break_end.strftime('%H:%M') }}
-                    {% elif h.break_type == 'flexible' %}
-                      Flexible: {{ h.break_minutes }} min
+                    {% if h.use_per_day %}
+                      Por días
                     {% else %}
-                      <span class="text-muted">Desconocido</span>
+                      Simple
                     {% endif %}
                   </td>
-                  <td class="text-nowrap">
+                  <td>
+                    {% if not h.use_per_day and h.start_time and h.end_time %}
+                      {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
+                    {% elif h.use_per_day %}
+                      <span class="text-muted">Configurado por días</span>
+                    {% else %}
+                      <span class="text-muted">Sin datos</span>
+                    {% endif %}
+                  </td>
+                  <td>
                     <a href="{{ url_for('editar_horario', schedule_id=h.id) }}"
-                      class="btn btn-sm btn-primary me-1">
+                       class="btn btn-sm btn-primary">
                       Editar
                     </a>
-
                     <form action="{{ url_for('eliminar_horario', schedule_id=h.id) }}"
                           method="post"
-                          style="display:inline"
-                          onsubmit="return confirm('¿Seguro que quieres eliminar este horario? Esta acción no se puede deshacer.');">
-                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                          style="display:inline-block"
+                          onsubmit="return confirm('¿Seguro que quieres eliminar este horario?');">
+                      <button type="submit" class="btn btn-sm btn-danger">
                         Eliminar
                       </button>
                     </form>
@@ -199,63 +214,139 @@
             </table>
           </div>
         {% else %}
-          <p class="text-muted mb-0">No hay horarios definidos todavía.</p>
+          <p class="text-muted mb-0 text-center">No hay horarios definidos todavía.</p>
         {% endif %}
       </div>
     </div>
   </div>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
 <script>
-  function toggleModoHorario() {
-    const chk = document.getElementById('use_per_day');
-    const globalDiv = document.querySelector('.config-global');
-    const perDayDiv = document.querySelector('.config-por-dia');
+  function toggleDisabled(field, disabled) {
+    if (!field) return;
+    if (disabled) {
+      field.value = "";
+      field.disabled = true;
+      field.classList.add("field-disabled");
+    } else {
+      field.disabled = false;
+      field.classList.remove("field-disabled");
+    }
+  }
 
-    if (!chk || !globalDiv || !perDayDiv) return;
+  function actualizarCamposDescansoDia(prefix) {
+    const tipo = document.getElementById(prefix + "_break_type")?.value || "none";
+    const bs = document.getElementById(prefix + "_break_start");
+    const be = document.getElementById(prefix + "_break_end");
+    const bm = document.getElementById(prefix + "_break_minutes");
+
+    if (tipo === "none") {
+      // Sin descanso -> todo bloqueado
+      toggleDisabled(bs, true);
+      toggleDisabled(be, true);
+      toggleDisabled(bm, true);
+    } else if (tipo === "fixed") {
+      // Descanso fijo -> solo inicio/fin activos
+      toggleDisabled(bs, false);
+      toggleDisabled(be, false);
+      toggleDisabled(bm, true);
+    } else if (tipo === "flexible") {
+      // Descanso flexible -> solo minutos activo
+      toggleDisabled(bs, true);
+      toggleDisabled(be, true);
+      toggleDisabled(bm, false);
+    }
+  }
+
+  function actualizarBloquesHorario() {
+    const chk = document.getElementById("use_per_day");
+    const bloqueSimple = document.getElementById("bloque_simple");
+    const bloqueDias = document.getElementById("bloque_dias");
+
+    if (!chk || !bloqueSimple || !bloqueDias) return;
 
     if (chk.checked) {
-      globalDiv.classList.add('d-none');
-      perDayDiv.classList.remove('d-none');
+      bloqueSimple.classList.add("d-none");
+      bloqueDias.classList.remove("d-none");
     } else {
-      globalDiv.classList.remove('d-none');
-      perDayDiv.classList.add('d-none');
+      bloqueSimple.classList.remove("d-none");
+      bloqueDias.classList.add("d-none");
     }
   }
 
-  function actualizarCamposDescansoGlobal() {
-    const tipo = document.getElementById('break_type_global').value;
-    const fijoElems = document.querySelectorAll('.descanso-fijo-global');
-    const flexElems = document.querySelectorAll('.descanso-flexible-global');
+  function copiarPrimerDia() {
+    const prefixes = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const origen = "mon";
 
-    if (tipo === 'fixed') {
-      fijoElems.forEach(e => e.classList.remove('d-none'));
-      flexElems.forEach(e => e.classList.add('d-none'));
-    } else if (tipo === 'flexible') {
-      fijoElems.forEach(e => e.classList.add('d-none'));
-      flexElems.forEach(e => e.classList.remove('d-none'));
+    const src_start = document.getElementById(origen + "_start")?.value || "";
+    const src_end = document.getElementById(origen + "_end")?.value || "";
+    const src_bt = document.getElementById(origen + "_break_type")?.value || "none";
+    const src_bs = document.getElementById(origen + "_break_start")?.value || "";
+    const src_be = document.getElementById(origen + "_break_end")?.value || "";
+    const src_bm = document.getElementById(origen + "_break_minutes")?.value || "";
+
+    prefixes.forEach(function(prefix) {
+      if (prefix === origen) return;
+
+      const f_start = document.getElementById(prefix + "_start");
+      const f_end = document.getElementById(prefix + "_end");
+      const f_bt = document.getElementById(prefix + "_break_type");
+      const f_bs = document.getElementById(prefix + "_break_start");
+      const f_be = document.getElementById(prefix + "_break_end");
+      const f_bm = document.getElementById(prefix + "_break_minutes");
+
+      if (f_start) f_start.value = src_start;
+      if (f_end)   f_end.value = src_end;
+      if (f_bt)    f_bt.value = src_bt;
+      if (f_bs)    f_bs.value = src_bs;
+      if (f_be)    f_be.value = src_be;
+      if (f_bm)    f_bm.value = src_bm;
+
+      actualizarCamposDescansoDia(prefix);
+    });
+
+    // Refrescar también lunes por si tenía tipo cambiado
+    actualizarCamposDescansoDia(origen);
+  }
+
+  function actualizarCamposDescansoSimple() {
+    const tipo = document.getElementById("break_type_simple")?.value || "none";
+    const fijoElems = document.querySelectorAll(".descanso-simple-fijo");
+    const flexElems = document.querySelectorAll(".descanso-simple-flexible");
+
+    if (tipo === "fixed") {
+      fijoElems.forEach(e => e.classList.remove("d-none"));
+      flexElems.forEach(e => e.classList.add("d-none"));
+    } else if (tipo === "flexible") {
+      fijoElems.forEach(e => e.classList.add("d-none"));
+      flexElems.forEach(e => e.classList.remove("d-none"));
     } else {
-      fijoElems.forEach(e => e.classList.add('d-none'));
-      flexElems.forEach(e => e.classList.add('d-none'));
+      fijoElems.forEach(e => e.classList.add("d-none"));
+      flexElems.forEach(e => e.classList.add("d-none"));
     }
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
-    const chk = document.getElementById('use_per_day');
+  document.addEventListener("DOMContentLoaded", function() {
+    const chk = document.getElementById("use_per_day");
     if (chk) {
-      chk.addEventListener('change', toggleModoHorario);
+      chk.addEventListener("change", actualizarBloquesHorario);
+      actualizarBloquesHorario();
     }
-    toggleModoHorario();
 
-    const sel = document.getElementById('break_type_global');
-    if (sel) {
-      sel.addEventListener('change', actualizarCamposDescansoGlobal);
-      actualizarCamposDescansoGlobal();
+    const selSimple = document.getElementById("break_type_simple");
+    if (selSimple) {
+      selSimple.addEventListener("change", actualizarCamposDescansoSimple);
+      actualizarCamposDescansoSimple();
     }
+
+    // Inicializar estado de todos los días
+    const prefixes = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    prefixes.forEach(function(prefix) {
+      actualizarCamposDescansoDia(prefix);
+    });
   });
 </script>
 {% endblock %}
