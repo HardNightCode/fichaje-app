@@ -1,87 +1,209 @@
 {% extends "base.html" %}
 
-{% block title %}Editar horario{% endblock %}
+{% block title %}Editar horario - {{ horario.name }}{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Editar horario</h1>
+<h1 class="mb-4">Editar horario: {{ horario.name }}</h1>
 
-<form action="{{ url_for('editar_horario', schedule_id=horario.id) }}" method="post" class="row g-3">
+<div class="card mb-4">
+  <div class="card-body">
+    <form action="{{ url_for('editar_horario', schedule_id=horario.id) }}" method="post" class="row g-3">
 
-  <div class="col-md-6">
-    <label class="form-label">Nombre</label>
-    <input type="text" name="name" class="form-control"
-           value="{{ horario.name }}" required>
+      <div class="col-12">
+        <label class="form-label">Nombre del horario</label>
+        <input type="text" name="name" class="form-control" value="{{ horario.name }}" required>
+      </div>
+
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" id="use_per_day"
+                 name="use_per_day" value="1"
+                 {% if horario.use_per_day %}checked{% endif %}>
+          <label class="form-check-label" for="use_per_day">
+            Configurar horario distinto por días de la semana
+          </label>
+        </div>
+        <small class="text-muted">
+          Si se activa, se usarán los horarios diarios. Los días sin inicio/fin
+          se interpretan como no laborables.
+        </small>
+      </div>
+
+      <!-- MODO SIMPLE -->
+      <div class="config-global row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Inicio jornada</label>
+          <input type="time" name="start_time" class="form-control"
+                 value="{{ horario.start_time.strftime('%H:%M') if horario.start_time }}">
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Fin jornada</label>
+          <input type="time" name="end_time" class="form-control"
+                 value="{{ horario.end_time.strftime('%H:%M') if horario.end_time }}">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label">Descanso</label>
+          <select name="break_type" id="break_type_global" class="form-select">
+            <option value="none" {% if horario.break_type == 'none' %}selected{% endif %}>Sin descanso</option>
+            <option value="fixed" {% if horario.break_type == 'fixed' %}selected{% endif %}>Descanso fijo</option>
+            <option value="flexible" {% if horario.break_type == 'flexible' %}selected{% endif %}>Descanso flexible</option>
+          </select>
+        </div>
+
+        <div class="col-md-6 descanso-fijo-global d-none">
+          <label class="form-label">Inicio descanso fijo</label>
+          <input type="time" name="break_start" class="form-control"
+                 value="{{ horario.break_start.strftime('%H:%M') if horario.break_start }}">
+        </div>
+        <div class="col-md-6 descanso-fijo-global d-none">
+          <label class="form-label">Fin descanso fijo</label>
+          <input type="time" name="break_end" class="form-control"
+                 value="{{ horario.break_end.strftime('%H:%M') if horario.break_end }}">
+        </div>
+
+        <div class="col-md-6 descanso-flexible-global d-none">
+          <label class="form-label">Descanso flexible (minutos)</label>
+          <input type="number" min="0" name="break_minutes" class="form-control"
+                 value="{{ horario.break_minutes if horario.break_minutes }}">
+        </div>
+      </div>
+
+      <!-- MODO POR DÍAS -->
+      <div class="config-por-dia d-none">
+        <p class="mb-2">
+          Define el horario por día. Si dejas un día sin inicio/fin,
+          se considerará día no laborable.
+        </p>
+
+        {% set dias = [
+          (0, 'Lunes', 'mon'),
+          (1, 'Martes', 'tue'),
+          (2, 'Miércoles', 'wed'),
+          (3, 'Jueves', 'thu'),
+          (4, 'Viernes', 'fri'),
+          (5, 'Sábado', 'sat'),
+          (6, 'Domingo', 'sun'),
+        ] %}
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Día</th>
+                <th>Inicio</th>
+                <th>Fin</th>
+                <th>Tipo descanso</th>
+                <th>Inicio descanso</th>
+                <th>Fin descanso</th>
+                <th>Min. descanso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for idx, nombre, key in dias %}
+              {% set d = dias_map.get(idx) %}
+              <tr>
+                <td>{{ nombre }}</td>
+                <td>
+                  <input type="time" name="{{ key }}_start" class="form-control form-control-sm"
+                         value="{{ d.start_time.strftime('%H:%M') if d }}">
+                </td>
+                <td>
+                  <input type="time" name="{{ key }}_end" class="form-control form-control-sm"
+                         value="{{ d.end_time.strftime('%H:%M') if d }}">
+                </td>
+                <td>
+                  <select name="{{ key }}_break_type" class="form-select form-select-sm">
+                    {% set btype = d.break_type if d else 'none' %}
+                    <option value="none" {% if btype == 'none' %}selected{% endif %}>Sin descanso</option>
+                    <option value="fixed" {% if btype == 'fixed' %}selected{% endif %}>Fijo</option>
+                    <option value="flexible" {% if btype == 'flexible' %}selected{% endif %}>Flexible</option>
+                  </select>
+                </td>
+                <td>
+                  <input type="time" name="{{ key }}_break_start" class="form-control form-control-sm"
+                         value="{{ d.break_start.strftime('%H:%M') if d and d.break_start }}">
+                </td>
+                <td>
+                  <input type="time" name="{{ key }}_break_end" class="form-control form-control-sm"
+                         value="{{ d.break_end.strftime('%H:%M') if d and d.break_end }}">
+                </td>
+                <td>
+                  <input type="number" min="0" name="{{ key }}_break_minutes" class="form-control form-control-sm"
+                         value="{{ d.break_minutes if d and d.break_minutes }}">
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">
+          Guardar cambios
+        </button>
+        <a href="{{ url_for('admin_horarios') }}" class="btn btn-outline-secondary ms-2">
+          Volver
+        </a>
+      </div>
+
+    </form>
   </div>
-
-  <div class="col-md-3">
-    <label class="form-label">Inicio jornada</label>
-    <input type="time" name="start_time" class="form-control"
-           value="{{ horario.start_time.strftime('%H:%M') }}" required>
-  </div>
-
-  <div class="col-md-3">
-    <label class="form-label">Fin jornada</label>
-    <input type="time" name="end_time" class="form-control"
-           value="{{ horario.end_time.strftime('%H:%M') }}" required>
-  </div>
-
-  <div class="col-md-4">
-    <label class="form-label">Tipo de descanso</label>
-    <select name="break_type" id="break_type" class="form-select">
-      <option value="none" {% if horario.break_type == 'none' %}selected{% endif %}>Sin descanso</option>
-      <option value="fixed" {% if horario.break_type == 'fixed' %}selected{% endif %}>Descanso fijo</option>
-      <option value="flexible" {% if horario.break_type == 'flexible' %}selected{% endif %}>Descanso flexible</option>
-    </select>
-  </div>
-
-  <div class="col-md-4" id="fixed_break_group">
-    <label class="form-label">Descanso fijo (inicio – fin)</label>
-    <div class="input-group">
-      <input type="time" name="break_start" class="form-control"
-             value="{{ horario.break_start.strftime('%H:%M') if horario.break_start }}">
-      <span class="input-group-text">–</span>
-      <input type="time" name="break_end" class="form-control"
-             value="{{ horario.break_end.strftime('%H:%M') if horario.break_end }}">
-    </div>
-  </div>
-
-  <div class="col-md-4" id="flex_break_group">
-    <label class="form-label">Descanso flexible (minutos)</label>
-    <input type="number" min="0" name="break_minutes" class="form-control"
-           value="{{ horario.break_minutes or '' }}">
-  </div>
-
-  <div class="col-12">
-    <button type="submit" class="btn btn-primary">Guardar cambios</button>
-    <a href="{{ url_for('admin_horarios') }}" class="btn btn-secondary ms-2">Volver</a>
-  </div>
-</form>
-
+</div>
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
 <script>
-function toggleBreakFields() {
-  const type = document.getElementById('break_type').value;
-  const fixedGroup = document.getElementById('fixed_break_group');
-  const flexGroup  = document.getElementById('flex_break_group');
+  function toggleModoHorario() {
+    const chk = document.getElementById('use_per_day');
+    const globalDiv = document.querySelector('.config-global');
+    const perDayDiv = document.querySelector('.config-por-dia');
 
-  if (type === 'fixed') {
-    fixedGroup.style.display = 'block';
-    flexGroup.style.display = 'none';
-  } else if (type === 'flexible') {
-    fixedGroup.style.display = 'none';
-    flexGroup.style.display = 'block';
-  } else {
-    fixedGroup.style.display = 'none';
-    flexGroup.style.display = 'none';
+    if (!chk || !globalDiv || !perDayDiv) return;
+
+    if (chk.checked) {
+      globalDiv.classList.add('d-none');
+      perDayDiv.classList.remove('d-none');
+    } else {
+      globalDiv.classList.remove('d-none');
+      perDayDiv.classList.add('d-none');
+    }
   }
-}
 
-document.addEventListener('DOMContentLoaded', function () {
-  toggleBreakFields();
-  document.getElementById('break_type').addEventListener('change', toggleBreakFields);
-});
+  function actualizarCamposDescansoGlobal() {
+    const sel = document.getElementById('break_type_global');
+    if (!sel) return;
+
+    const tipo = sel.value;
+    const fijoElems = document.querySelectorAll('.descanso-fijo-global');
+    const flexElems = document.querySelectorAll('.descanso-flexible-global');
+
+    if (tipo === 'fixed') {
+      fijoElems.forEach(e => e.classList.remove('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
+    } else if (tipo === 'flexible') {
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.remove('d-none'));
+    } else {
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const chk = document.getElementById('use_per_day');
+    if (chk) {
+      chk.addEventListener('change', toggleModoHorario);
+    }
+    toggleModoHorario();
+
+    const sel = document.getElementById('break_type_global');
+    if (sel) {
+      sel.addEventListener('change', actualizarCamposDescansoGlobal);
+      actualizarCamposDescansoGlobal();
+    }
+  });
 </script>
 {% endblock %}
