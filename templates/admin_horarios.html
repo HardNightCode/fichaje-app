@@ -3,16 +3,24 @@
 {% block title %}Horarios - Administración{% endblock %}
 
 {% block content %}
-<h1 class="mb-4 text-center">Gestión de horarios</h1>
+<h1 class="mb-4">Gestión de horarios</h1>
 
 <style>
-  .field-disabled {
-    background-color: #e9ecef !important;
-    cursor: not-allowed;
+  .day-disabled input,
+  .day-disabled select {
+    background-color: #f1f3f5 !important;
+    color: #6c757d !important;
+  }
+  .day-disabled .form-control[disabled],
+  .day-disabled .form-select[disabled] {
+    opacity: 1;
+  }
+  .day-toggle-btn {
+    width: 2rem;
   }
 </style>
 
-<div class="row justify-content-center">
+<div class="row">
   <div class="col-lg-6">
     <div class="card mb-4">
       <div class="card-header">
@@ -20,23 +28,13 @@
       </div>
       <div class="card-body">
         <form action="{{ url_for('admin_horarios') }}" method="post" class="row g-3">
-
           <div class="col-12">
             <label class="form-label">Nombre del horario</label>
             <input type="text" name="name" class="form-control" required>
           </div>
 
-          <div class="col-12">
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" id="use_per_day" name="use_per_day" value="1">
-              <label class="form-check-label" for="use_per_day">
-                Configurar horario distinto por días de la semana
-              </label>
-            </div>
-          </div>
-
-          <!-- BLOQUE MODO SIMPLE (mismas horas todos los días) -->
-          <div id="bloque_simple">
+          {# =================== MODO SIMPLE =================== #}
+          <div id="simple-schedule-wrapper" class="row g-3">
             <div class="col-md-6">
               <label class="form-label">Inicio jornada</label>
               <input type="time" name="start_time" class="form-control">
@@ -47,47 +45,62 @@
             </div>
 
             <div class="col-12">
-              <label class="form-label">Descanso</label>
-              <select name="break_type" id="break_type_simple" class="form-select">
+              <label class="form-label">Descanso (modo simple)</label>
+              <select name="break_type" id="break_type_global" class="form-select">
                 <option value="none">Sin descanso</option>
                 <option value="fixed">Descanso fijo</option>
                 <option value="flexible">Descanso flexible</option>
               </select>
             </div>
 
-            <div class="col-md-6 descanso-simple-fijo d-none">
+            <div class="col-md-6 global-descanso-fijo d-none">
               <label class="form-label">Inicio descanso fijo</label>
               <input type="time" name="break_start" class="form-control">
             </div>
-            <div class="col-md-6 descanso-simple-fijo d-none">
+            <div class="col-md-6 global-descanso-fijo d-none">
               <label class="form-label">Fin descanso fijo</label>
               <input type="time" name="break_end" class="form-control">
             </div>
 
-            <div class="col-md-6 descanso-simple-flexible d-none">
+            <div class="col-md-6 global-descanso-flexible d-none">
               <label class="form-label">Descanso flexible (minutos)</label>
               <input type="number" min="0" name="break_minutes" class="form-control">
             </div>
           </div>
 
-          <!-- BLOQUE MODO POR DÍAS -->
-          <div id="bloque_dias" class="d-none mt-3">
+          <hr class="mt-4">
+
+          {# ============ MODO POR DÍAS DE LA SEMANA ============ #}
+          <div class="col-12">
+            <div class="d-flex align-items-center mb-2">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox"
+                       id="use_per_day" name="use_per_day" value="1">
+                <label class="form-check-label" for="use_per_day">
+                  Configurar horario distinto por días de la semana
+                </label>
+              </div>
+
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary ms-3"
+                      id="copy-first-day-btn"
+                      title="Copiar configuración del primer día al resto"
+                      disabled>
+                ↓
+              </button>
+            </div>
+          </div>
+
+          <div class="col-12" id="per-day-wrapper" style="display: none;">
             <div class="table-responsive">
-              <table class="table table-sm align-middle text-center">
+              <table class="table table-sm align-middle mb-0">
                 <thead class="table-light">
                   <tr>
+                    <th class="text-center" style="width: 3rem;">&nbsp;</th>
                     <th>Día</th>
                     <th>Inicio</th>
                     <th>Fin</th>
-                    <th>
-                      Descanso
-                      <button type="button"
-                              class="btn btn-sm btn-outline-secondary ms-2"
-                              title="Copiar configuración del lunes al resto de días"
-                              onclick="copiarPrimerDia()">
-                        &#8595;
-                      </button>
-                    </th>
+                    <th>Descanso</th>
                     <th>Inicio descanso</th>
                     <th>Fin descanso</th>
                     <th>Min. descanso</th>
@@ -95,60 +108,67 @@
                 </thead>
                 <tbody>
                   {% set dias = [
-                    ('mon', 'Lunes'),
-                    ('tue', 'Martes'),
-                    ('wed', 'Miércoles'),
-                    ('thu', 'Jueves'),
-                    ('fri', 'Viernes'),
-                    ('sat', 'Sábado'),
-                    ('sun', 'Domingo')
+                    ('mon', 'Lunes', 0),
+                    ('tue', 'Martes', 1),
+                    ('wed', 'Miércoles', 2),
+                    ('thu', 'Jueves', 3),
+                    ('fri', 'Viernes', 4),
+                    ('sat', 'Sábado', 5),
+                    ('sun', 'Domingo', 6)
                   ] %}
-                  {% for prefix, label in dias %}
-                  <tr>
-                    <td>{{ label }}</td>
-                    <td>
-                      <input type="time" name="{{ prefix }}_start" id="{{ prefix }}_start" class="form-control form-control-sm">
-                    </td>
-                    <td>
-                      <input type="time" name="{{ prefix }}_end" id="{{ prefix }}_end" class="form-control form-control-sm">
-                    </td>
-                    <td>
-                      <select name="{{ prefix }}_break_type"
-                              id="{{ prefix }}_break_type"
-                              class="form-select form-select-sm"
-                              onchange="actualizarCamposDescansoDia('{{ prefix }}')">
-                        <option value="none">Sin descanso</option>
-                        <option value="fixed">Descanso fijo</option>
-                        <option value="flexible">Descanso flexible</option>
-                      </select>
-                    </td>
-                    <td>
-                      <input type="time" name="{{ prefix }}_break_start"
-                             id="{{ prefix }}_break_start"
-                             class="form-control form-control-sm">
-                    </td>
-                    <td>
-                      <input type="time" name="{{ prefix }}_break_end"
-                             id="{{ prefix }}_break_end"
-                             class="form-control form-control-sm">
-                    </td>
-                    <td>
-                      <input type="number" min="0" name="{{ prefix }}_break_minutes"
-                             id="{{ prefix }}_break_minutes"
-                             class="form-control form-control-sm">
-                    </td>
-                  </tr>
+                  {% for prefix, nombre, dow in dias %}
+                    <tr class="day-row" data-prefix="{{ prefix }}" data-active="1">
+                      <td class="text-center">
+                        <button type="button"
+                                class="btn btn-sm btn-outline-secondary day-toggle-btn day-toggle"
+                                data-prefix="{{ prefix }}">
+                          &minus;
+                        </button>
+                      </td>
+                      <td>{{ nombre }}</td>
+                      <td>
+                        <input type="time" name="{{ prefix }}_start"
+                               class="form-control form-control-sm">
+                      </td>
+                      <td>
+                        <input type="time" name="{{ prefix }}_end"
+                               class="form-control form-control-sm">
+                      </td>
+                      <td>
+                        <select name="{{ prefix }}_break_type"
+                                class="form-select form-select-sm day-break-type"
+                                data-prefix="{{ prefix }}">
+                          <option value="none">Sin descanso</option>
+                          <option value="fixed">Descanso fijo</option>
+                          <option value="flexible">Descanso flexible</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input type="time" name="{{ prefix }}_break_start"
+                               class="form-control form-control-sm">
+                      </td>
+                      <td>
+                        <input type="time" name="{{ prefix }}_break_end"
+                               class="form-control form-control-sm">
+                      </td>
+                      <td>
+                        <input type="number" min="0"
+                               name="{{ prefix }}_break_minutes"
+                               class="form-control form-control-sm">
+                      </td>
+                    </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
-            <p class="text-muted small mb-0">
-              Cualquier día sin hora de inicio/fin se interpretará como <strong>no laborable</strong>.
+            <p class="text-muted small mt-2 mb-0">
+              Cualquier día sin hora de inicio/fin se interpretará como
+              <strong>no laborable</strong>.
             </p>
           </div>
 
-          <div class="col-12 mt-3 text-center">
-            <button type="submit" class="btn btn-success px-4">
+          <div class="col-12 mt-4">
+            <button type="submit" class="btn btn-success">
               Guardar horario
             </button>
           </div>
@@ -157,6 +177,7 @@
     </div>
   </div>
 
+  {# =================== LISTADO DE HORARIOS =================== #}
   <div class="col-lg-6">
     <div class="card mb-4">
       <div class="card-header">
@@ -165,13 +186,14 @@
       <div class="card-body">
         {% if horarios %}
           <div class="table-responsive">
-            <table class="table table-striped table-sm align-middle mb-0 text-center">
+            <table class="table table-striped table-sm align-middle mb-0">
               <thead class="table-light">
                 <tr>
                   <th>Nombre</th>
                   <th>Tipo</th>
-                  <th>Detalle</th>
-                  <th>Acciones</th>
+                  <th>Jornada / Días</th>
+                  <th>Descanso</th>
+                  <th class="text-end">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -186,23 +208,41 @@
                     {% endif %}
                   </td>
                   <td>
-                    {% if not h.use_per_day and h.start_time and h.end_time %}
+                    {% if not h.use_per_day %}
                       {{ h.start_time.strftime('%H:%M') }} - {{ h.end_time.strftime('%H:%M') }}
-                    {% elif h.use_per_day %}
-                      <span class="text-muted">Configurado por días</span>
                     {% else %}
-                      <span class="text-muted">Sin datos</span>
+                      {% if h.days %}
+                        {% for d in h.days|sort(attribute='day_of_week') %}
+                          {% set nombres = ['L', 'M', 'X', 'J', 'V', 'S', 'D'] %}
+                          {{ nombres[d.day_of_week] }}:
+                          {{ d.start_time.strftime('%H:%M') }}-{{ d.end_time.strftime('%H:%M') }}{% if not loop.last %}, {% endif %}
+                        {% endfor %}
+                      {% else %}
+                        <span class="text-muted">Sin días configurados</span>
+                      {% endif %}
                     {% endif %}
                   </td>
                   <td>
+                    {% if not h.use_per_day %}
+                      {% if h.break_type == 'none' %}
+                        Sin descanso
+                      {% elif h.break_type == 'fixed' %}
+                        Fijo: {{ h.break_start.strftime('%H:%M') }} - {{ h.break_end.strftime('%H:%M') }}
+                      {% elif h.break_type == 'flexible' %}
+                        Flexible: {{ h.break_minutes }} min
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">Por día</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
                     <a href="{{ url_for('editar_horario', schedule_id=h.id) }}"
                        class="btn btn-sm btn-primary">
                       Editar
                     </a>
                     <form action="{{ url_for('eliminar_horario', schedule_id=h.id) }}"
-                          method="post"
-                          style="display:inline-block"
-                          onsubmit="return confirm('¿Seguro que quieres eliminar este horario?');">
+                          method="post" class="d-inline"
+                          onsubmit="return confirm('¿Seguro que deseas eliminar este horario?');">
                       <button type="submit" class="btn btn-sm btn-danger">
                         Eliminar
                       </button>
@@ -214,139 +254,223 @@
             </table>
           </div>
         {% else %}
-          <p class="text-muted mb-0 text-center">No hay horarios definidos todavía.</p>
+          <p class="text-muted mb-0">No hay horarios definidos todavía.</p>
         {% endif %}
       </div>
     </div>
   </div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 {{ super() }}
 <script>
-  function toggleDisabled(field, disabled) {
-    if (!field) return;
-    if (disabled) {
-      field.value = "";
-      field.disabled = true;
-      field.classList.add("field-disabled");
+  const DAY_PREFIXES = ["mon","tue","wed","thu","fri","sat","sun"];
+
+  function updateGlobalBreakFields() {
+    const tipo = document.getElementById('break_type_global').value;
+    const fijoElems = document.querySelectorAll('.global-descanso-fijo');
+    const flexElems = document.querySelectorAll('.global-descanso-flexible');
+
+    if (tipo === 'fixed') {
+      fijoElems.forEach(e => e.classList.remove('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
+    } else if (tipo === 'flexible') {
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.remove('d-none'));
     } else {
-      field.disabled = false;
-      field.classList.remove("field-disabled");
+      fijoElems.forEach(e => e.classList.add('d-none'));
+      flexElems.forEach(e => e.classList.add('d-none'));
     }
   }
 
-  function actualizarCamposDescansoDia(prefix) {
-    const tipo = document.getElementById(prefix + "_break_type")?.value || "none";
-    const bs = document.getElementById(prefix + "_break_start");
-    const be = document.getElementById(prefix + "_break_end");
-    const bm = document.getElementById(prefix + "_break_minutes");
+  function setDayEnabled(prefix, enabled) {
+    const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+    if (!row) return;
 
-    if (tipo === "none") {
-      // Sin descanso -> todo bloqueado
-      toggleDisabled(bs, true);
-      toggleDisabled(be, true);
-      toggleDisabled(bm, true);
-    } else if (tipo === "fixed") {
-      // Descanso fijo -> solo inicio/fin activos
-      toggleDisabled(bs, false);
-      toggleDisabled(be, false);
-      toggleDisabled(bm, true);
-    } else if (tipo === "flexible") {
-      // Descanso flexible -> solo minutos activo
-      toggleDisabled(bs, true);
-      toggleDisabled(be, true);
-      toggleDisabled(bm, false);
+    const toggleBtn = row.querySelector('.day-toggle');
+    const inputs = row.querySelectorAll('input, select');
+
+    if (!enabled) {
+      row.classList.add('day-disabled');
+      row.dataset.active = "0";
+      if (toggleBtn) toggleBtn.textContent = "+";
+
+      inputs.forEach(el => {
+        if (el === toggleBtn) return;
+        if (el.name.endsWith('_start') || el.name.endsWith('_end') ||
+            el.name.endsWith('_break_start') || el.name.endsWith('_break_end') ||
+            el.name.endsWith('_break_minutes')) {
+          el.value = "";
+        }
+        if (el.tagName === "SELECT" && el.name.endsWith('_break_type')) {
+          el.value = "none";
+        }
+        if (el !== toggleBtn) {
+          el.disabled = true;
+        }
+      });
+    } else {
+      row.classList.remove('day-disabled');
+      row.dataset.active = "1";
+      if (toggleBtn) toggleBtn.textContent = "–";
+
+      inputs.forEach(el => {
+        if (el !== toggleBtn) {
+          el.disabled = false;
+        }
+      });
+      updateDayBreakFields(prefix);
     }
   }
 
-  function actualizarBloquesHorario() {
-    const chk = document.getElementById("use_per_day");
-    const bloqueSimple = document.getElementById("bloque_simple");
-    const bloqueDias = document.getElementById("bloque_dias");
+  function updateDayBreakFields(prefix) {
+    const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+    if (!row) return;
 
-    if (!chk || !bloqueSimple || !bloqueDias) return;
+    if (row.classList.contains('day-disabled')) {
+      const all = row.querySelectorAll('input, select');
+      all.forEach(el => {
+        if (!el.classList.contains('day-toggle')) {
+          el.disabled = true;
+        }
+      });
+      return;
+    }
+
+    const sel = row.querySelector(`select[name="${prefix}_break_type"]`);
+    const bs = row.querySelector(`input[name="${prefix}_break_start"]`);
+    const be = row.querySelector(`input[name="${prefix}_break_end"]`);
+    const bm = row.querySelector(`input[name="${prefix}_break_minutes"]`);
+
+    if (!sel || !bs || !be || !bm) return;
+
+    // Primero habilitamos todo
+    bs.disabled = false;
+    be.disabled = false;
+    bm.disabled = false;
+
+    if (sel.value === "none") {
+      bs.value = "";
+      be.value = "";
+      bm.value = "";
+      bs.disabled = true;
+      be.disabled = true;
+      bm.disabled = true;
+    } else if (sel.value === "fixed") {
+      bm.value = "";
+      bm.disabled = true;
+      bs.disabled = false;
+      be.disabled = false;
+    } else if (sel.value === "flexible") {
+      bs.value = "";
+      be.value = "";
+      bs.disabled = true;
+      be.disabled = true;
+      bm.disabled = false;
+    }
+  }
+
+  function updatePerDayVisibility() {
+    const chk = document.getElementById('use_per_day');
+    const perDayWrapper = document.getElementById('per-day-wrapper');
+    const simpleWrapper = document.getElementById('simple-schedule-wrapper');
+    const copyBtn = document.getElementById('copy-first-day-btn');
 
     if (chk.checked) {
-      bloqueSimple.classList.add("d-none");
-      bloqueDias.classList.remove("d-none");
+      perDayWrapper.style.display = '';
+      simpleWrapper.style.opacity = 0.3;
+      Array.from(simpleWrapper.querySelectorAll('input, select')).forEach(el => {
+        el.disabled = true;
+      });
+      copyBtn.disabled = false;
     } else {
-      bloqueSimple.classList.remove("d-none");
-      bloqueDias.classList.add("d-none");
+      perDayWrapper.style.display = 'none';
+      simpleWrapper.style.opacity = 1;
+      Array.from(simpleWrapper.querySelectorAll('input, select')).forEach(el => {
+        el.disabled = false;
+      });
+      copyBtn.disabled = true;
     }
   }
 
-  function copiarPrimerDia() {
-    const prefixes = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-    const origen = "mon";
+  function copyFirstDayToOthers() {
+    const chk = document.getElementById('use_per_day');
+    if (!chk || !chk.checked) return;
 
-    const src_start = document.getElementById(origen + "_start")?.value || "";
-    const src_end = document.getElementById(origen + "_end")?.value || "";
-    const src_bt = document.getElementById(origen + "_break_type")?.value || "none";
-    const src_bs = document.getElementById(origen + "_break_start")?.value || "";
-    const src_be = document.getElementById(origen + "_break_end")?.value || "";
-    const src_bm = document.getElementById(origen + "_break_minutes")?.value || "";
+    const srcPrefix = DAY_PREFIXES[0]; // lunes
+    const srcRow = document.querySelector(`tr.day-row[data-prefix="${srcPrefix}"]`);
+    if (!srcRow || srcRow.dataset.active === "0") return;
 
-    prefixes.forEach(function(prefix) {
-      if (prefix === origen) return;
+    const fields = ["start", "end", "break_type", "break_start", "break_end", "break_minutes"];
 
-      const f_start = document.getElementById(prefix + "_start");
-      const f_end = document.getElementById(prefix + "_end");
-      const f_bt = document.getElementById(prefix + "_break_type");
-      const f_bs = document.getElementById(prefix + "_break_start");
-      const f_be = document.getElementById(prefix + "_break_end");
-      const f_bm = document.getElementById(prefix + "_break_minutes");
+    function getField(prefix, field) {
+      return document.querySelector(`[name="${prefix}_${field}"]`);
+    }
 
-      if (f_start) f_start.value = src_start;
-      if (f_end)   f_end.value = src_end;
-      if (f_bt)    f_bt.value = src_bt;
-      if (f_bs)    f_bs.value = src_bs;
-      if (f_be)    f_be.value = src_be;
-      if (f_bm)    f_bm.value = src_bm;
+    fields.forEach(field => {
+      const srcEl = getField(srcPrefix, field);
+      if (!srcEl) return;
+      const value = srcEl.value;
 
-      actualizarCamposDescansoDia(prefix);
+      DAY_PREFIXES.slice(1).forEach(prefix => {
+        const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+        if (!row || row.dataset.active === "0") return;
+
+        const dstEl = getField(prefix, field);
+        if (!dstEl) return;
+        dstEl.value = value;
+      });
     });
 
-    // Refrescar también lunes por si tenía tipo cambiado
-    actualizarCamposDescansoDia(origen);
+    DAY_PREFIXES.forEach(updateDayBreakFields);
   }
 
-  function actualizarCamposDescansoSimple() {
-    const tipo = document.getElementById("break_type_simple")?.value || "none";
-    const fijoElems = document.querySelectorAll(".descanso-simple-fijo");
-    const flexElems = document.querySelectorAll(".descanso-simple-flexible");
-
-    if (tipo === "fixed") {
-      fijoElems.forEach(e => e.classList.remove("d-none"));
-      flexElems.forEach(e => e.classList.add("d-none"));
-    } else if (tipo === "flexible") {
-      fijoElems.forEach(e => e.classList.add("d-none"));
-      flexElems.forEach(e => e.classList.remove("d-none"));
-    } else {
-      fijoElems.forEach(e => e.classList.add("d-none"));
-      flexElems.forEach(e => e.classList.add("d-none"));
+  document.addEventListener('DOMContentLoaded', function() {
+    // Global (modo simple)
+    const selGlobal = document.getElementById('break_type_global');
+    if (selGlobal) {
+      selGlobal.addEventListener('change', updateGlobalBreakFields);
+      updateGlobalBreakFields();
     }
-  }
 
-  document.addEventListener("DOMContentLoaded", function() {
-    const chk = document.getElementById("use_per_day");
+    // Checkbox de modo por días
+    const chk = document.getElementById('use_per_day');
     if (chk) {
-      chk.addEventListener("change", actualizarBloquesHorario);
-      actualizarBloquesHorario();
+      chk.addEventListener('change', updatePerDayVisibility);
+      updatePerDayVisibility();
     }
 
-    const selSimple = document.getElementById("break_type_simple");
-    if (selSimple) {
-      selSimple.addEventListener("change", actualizarCamposDescansoSimple);
-      actualizarCamposDescansoSimple();
-    }
-
-    // Inicializar estado de todos los días
-    const prefixes = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-    prefixes.forEach(function(prefix) {
-      actualizarCamposDescansoDia(prefix);
+    // Toggle día laborable / no laborable
+    document.querySelectorAll('.day-toggle').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const prefix = this.dataset.prefix;
+        const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+        const active = row.dataset.active !== "0";
+        setDayEnabled(prefix, !active);
+      });
     });
+
+    // Cambio de tipo de descanso por día
+    document.querySelectorAll('.day-break-type').forEach(sel => {
+      sel.addEventListener('change', function() {
+        const prefix = this.dataset.prefix;
+        updateDayBreakFields(prefix);
+      });
+    });
+
+    // Inicializar días como activos y aplicar reglas de descanso
+    DAY_PREFIXES.forEach(prefix => {
+      setDayEnabled(prefix, true);
+      updateDayBreakFields(prefix);
+    });
+
+    // Botón copiar lunes al resto
+    const copyBtn = document.getElementById('copy-first-day-btn');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', copyFirstDayToOthers);
+    }
   });
 </script>
 {% endblock %}

@@ -854,207 +854,151 @@ def editar_horario(schedule_id):
     horario = Schedule.query.get_or_404(schedule_id)
 
     if request.method == "POST":
-        try:
-            name = request.form.get("name", "").strip()
-            use_per_day = bool(request.form.get("use_per_day"))
+        name = request.form.get("name", "").strip()
+        use_per_day = bool(request.form.get("use_per_day"))
 
-            if not name:
-                flash("El nombre del horario es obligatorio.", "error")
+        if not name:
+            flash("El nombre del horario es obligatorio.", "error")
+            return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+        horario.name = name
+        horario.use_per_day = use_per_day
+
+        # --------- MODO SIMPLE ----------
+        if not use_per_day:
+            start_time_str = request.form.get("start_time", "").strip()
+            end_time_str = request.form.get("end_time", "").strip()
+            break_type = request.form.get("break_type", "none")
+
+            break_start_str = request.form.get("break_start", "").strip()
+            break_end_str = request.form.get("break_end", "").strip()
+            break_minutes_str = request.form.get("break_minutes", "").strip()
+
+            if not start_time_str or not end_time_str:
+                flash("Inicio y fin de jornada son obligatorios en modo simple.", "error")
                 return redirect(url_for("editar_horario", schedule_id=horario.id))
 
-            horario.name = name
-            horario.use_per_day = use_per_day
+            try:
+                horario.start_time = datetime.strptime(start_time_str, "%H:%M").time()
+                horario.end_time = datetime.strptime(end_time_str, "%H:%M").time()
+            except ValueError:
+                flash("Las horas de inicio y fin deben tener formato HH:MM.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
 
-            # --------- MODO SIMPLE ----------
-            if not use_per_day:
-                start_time_str = request.form.get("start_time", "").strip()
-                end_time_str = request.form.get("end_time", "").strip()
-                break_type = request.form.get("break_type", "none")
+            horario.break_type = break_type
+            horario.break_start = None
+            horario.break_end = None
+            horario.break_minutes = None
 
-                break_start_str = request.form.get("break_start", "").strip()
-                break_end_str = request.form.get("break_end", "").strip()
-                break_minutes_str = request.form.get("break_minutes", "").strip()
-
-                if not start_time_str or not end_time_str:
-                    flash(
-                        "Inicio y fin de jornada son obligatorios en modo simple.",
-                        "error",
-                    )
+            if break_type == "fixed":
+                if not break_start_str or not break_end_str:
+                    flash("Para descanso fijo debes indicar inicio y fin de descanso.", "error")
                     return redirect(url_for("editar_horario", schedule_id=horario.id))
+                try:
+                    horario.break_start = datetime.strptime(break_start_str, "%H:%M").time()
+                    horario.break_end = datetime.strptime(break_end_str, "%H:%M").time()
+                except ValueError:
+                    flash("Las horas de descanso deben tener formato HH:MM.", "error")
+                    return redirect(url_for("editar_horario", schedule_id=horario.id))
+            elif break_type == "flexible":
+                if not break_minutes_str:
+                    flash("Para descanso flexible debes indicar los minutos de descanso.", "error")
+                    return redirect(url_for("editar_horario", schedule_id=horario.id))
+                try:
+                    horario.break_minutes = int(break_minutes_str)
+                except ValueError:
+                    flash("Los minutos de descanso deben ser numéricos.", "error")
+                    return redirect(url_for("editar_horario", schedule_id=horario.id))
+
+            # En modo simple, limpiamos cualquier configuración por días
+            horario.days.clear()
+
+        # --------- MODO POR DÍAS ----------
+        else:
+            # En modo por días, el horario global no se usa realmente,
+            # pero la BD exige NOT NULL en start_time/end_time.
+            horario.start_time = time(0, 0)
+            horario.end_time = time(23, 59)
+            horario.break_type = "none"
+            horario.break_start = None
+            horario.break_end = None
+            horario.break_minutes = None
+
+            # Limpiamos días actuales antes de recrearlos
+            horario.days.clear()
+
+            dias = [
+                ("mon", 0),
+                ("tue", 1),
+                ("wed", 2),
+                ("thu", 3),
+                ("fri", 4),
+                ("sat", 5),
+                ("sun", 6),
+            ]
+
+            tiene_algun_dia = False
+
+            for prefix, dow in dias:
+                s_str = request.form.get(f"{prefix}_start", "").strip()
+                e_str = request.form.get(f"{prefix}_end", "").strip()
+                if not s_str or not e_str:
+                    continue
 
                 try:
-                    horario.start_time = datetime.strptime(start_time_str, "%H:%M").time()
-                    horario.end_time = datetime.strptime(end_time_str, "%H:%M").time()
+                    s_time = datetime.strptime(s_str, "%H:%M").time()
+                    e_time = datetime.strptime(e_str, "%H:%M").time()
                 except ValueError:
-                    flash(
-                        "Las horas de inicio y fin deben tener formato HH:MM.",
-                        "error",
-                    )
+                    flash(f"Hora inválida en el día {prefix.upper()} (formato HH:MM).", "error")
                     return redirect(url_for("editar_horario", schedule_id=horario.id))
 
-                horario.break_type = break_type
-                horario.break_start = None
-                horario.break_end = None
-                horario.break_minutes = None
+                b_type = request.form.get(f"{prefix}_break_type", "none")
+                bs = be = None
+                bmin = None
 
-                if break_type == "fixed":
-                    if not break_start_str or not break_end_str:
-                        flash(
-                            "Para descanso fijo debes indicar inicio y fin de descanso.",
-                            "error",
-                        )
+                if b_type == "fixed":
+                    bs_str = request.form.get(f"{prefix}_break_start", "").strip()
+                    be_str = request.form.get(f"{prefix}_break_end", "").strip()
+                    if not bs_str or not be_str:
+                        flash("Para descanso fijo debes indicar inicio y fin de descanso en cada día.", "error")
                         return redirect(url_for("editar_horario", schedule_id=horario.id))
                     try:
-                        horario.break_start = datetime.strptime(
-                            break_start_str, "%H:%M"
-                        ).time()
-                        horario.break_end = datetime.strptime(
-                            break_end_str, "%H:%M"
-                        ).time()
+                        bs = datetime.strptime(bs_str, "%H:%M").time()
+                        be = datetime.strptime(be_str, "%H:%M").time()
                     except ValueError:
-                        flash(
-                            "Las horas de descanso deben tener formato HH:MM.",
-                            "error",
-                        )
+                        flash("Las horas de descanso diario deben tener formato HH:MM.", "error")
                         return redirect(url_for("editar_horario", schedule_id=horario.id))
-
-                elif break_type == "flexible":
-                    if not break_minutes_str:
-                        flash(
-                            "Para descanso flexible debes indicar los minutos de descanso.",
-                            "error",
-                        )
+                elif b_type == "flexible":
+                    bmin_str = request.form.get(f"{prefix}_break_minutes", "").strip()
+                    if not bmin_str:
+                        flash("Para descanso flexible debes indicar los minutos de descanso en cada día.", "error")
                         return redirect(url_for("editar_horario", schedule_id=horario.id))
                     try:
-                        horario.break_minutes = int(break_minutes_str)
+                        bmin = int(bmin_str)
                     except ValueError:
-                        flash(
-                            "Los minutos de descanso deben ser numéricos.",
-                            "error",
-                        )
+                        flash("Los minutos de descanso diario deben ser numéricos.", "error")
                         return redirect(url_for("editar_horario", schedule_id=horario.id))
 
-                # En modo simple, limpiamos días (por si antes era por días)
-                horario.days.clear()
+                dia_obj = ScheduleDay(
+                    schedule_id=horario.id,
+                    day_of_week=dow,
+                    start_time=s_time,
+                    end_time=e_time,
+                    break_type=b_type,
+                    break_start=bs,
+                    break_end=be,
+                    break_minutes=bmin,
+                )
+                horario.days.append(dia_obj)
+                tiene_algun_dia = True
 
-            # --------- MODO POR DÍAS ----------
-            else:
-                # En modo por días, el horario global no se usa realmente,
-                # pero la BD exige que no sean NULL (NOT NULL en PostgreSQL).
-                horario.start_time = time(0, 0)
-                horario.end_time = time(23, 59)
-                horario.break_type = "none"
-                horario.break_start = None
-                horario.break_end = None
-                horario.break_minutes = None
+            if not tiene_algun_dia:
+                flash("En modo por días, al menos un día debe tener horario.", "error")
+                return redirect(url_for("editar_horario", schedule_id=horario.id))
 
-                # Limpiamos días actuales antes de recrearlos
-                horario.days.clear()
-
-                dias = [
-                    ("mon", 0),
-                    ("tue", 1),
-                    ("wed", 2),
-                    ("thu", 3),
-                    ("fri", 4),
-                    ("sat", 5),
-                    ("sun", 6),
-                ]
-
-                tiene_algun_dia = False
-
-                for prefix, dow in dias:
-                    s_str = request.form.get(f"{prefix}_start", "").strip()
-                    e_str = request.form.get(f"{prefix}_end", "").strip()
-                    if not s_str or not e_str:
-                        continue
-
-                    try:
-                        s_time = datetime.strptime(s_str, "%H:%M").time()
-                        e_time = datetime.strptime(e_str, "%H:%M").time()
-                    except ValueError:
-                        flash(
-                            f"Hora inválida en el día {prefix.upper()} (formato HH:MM).",
-                            "error",
-                        )
-                        return redirect(url_for("editar_horario", schedule_id=horario.id))
-
-                    b_type = request.form.get(f"{prefix}_break_type", "none")
-                    bs = be = None
-                    bmin = None
-
-                    if b_type == "fixed":
-                        bs_str = request.form.get(f"{prefix}_break_start", "").strip()
-                        be_str = request.form.get(f"{prefix}_break_end", "").strip()
-                        if not bs_str or not be_str:
-                            flash(
-                                "Para descanso fijo debes indicar inicio y fin de descanso en cada día.",
-                                "error",
-                            )
-                            return redirect(
-                                url_for("editar_horario", schedule_id=horario.id)
-                            )
-                        try:
-                            bs = datetime.strptime(bs_str, "%H:%M").time()
-                            be = datetime.strptime(be_str, "%H:%M").time()
-                        except ValueError:
-                            flash(
-                                "Las horas de descanso diario deben tener formato HH:MM.",
-                                "error",
-                            )
-                            return redirect(
-                                url_for("editar_horario", schedule_id=horario.id)
-                            )
-                    elif b_type == "flexible":
-                        bmin_str = request.form.get(f"{prefix}_break_minutes", "").strip()
-                        if not bmin_str:
-                            flash(
-                                "Para descanso flexible debes indicar los minutos de descanso en cada día.",
-                                "error",
-                            )
-                            return redirect(
-                                url_for("editar_horario", schedule_id=horario.id)
-                            )
-                        try:
-                            bmin = int(bmin_str)
-                        except ValueError:
-                            flash(
-                                "Los minutos de descanso diario deben ser numéricos.",
-                                "error",
-                            )
-                            return redirect(
-                                url_for("editar_horario", schedule_id=horario.id)
-                            )
-
-                    dia_obj = ScheduleDay(
-                        schedule_id=horario.id,
-                        day_of_week=dow,
-                        start_time=s_time,
-                        end_time=e_time,
-                        break_type=b_type,
-                        break_start=bs,
-                        break_end=be,
-                        break_minutes=bmin,
-                    )
-                    horario.days.append(dia_obj)
-                    tiene_algun_dia = True
-
-                if not tiene_algun_dia:
-                    flash(
-                        "En modo por días, al menos un día debe tener horario.",
-                        "error",
-                    )
-                    return redirect(url_for("editar_horario", schedule_id=horario.id))
-
-            db.session.commit()
-            flash("Horario actualizado correctamente.", "success")
-            return redirect(url_for("admin_horarios"))
-
-        except Exception as e:
-            app.logger.exception("Error al editar horario: %s", e)
-            db.session.rollback()
-            flash("Se ha producido un error al actualizar el horario.", "error")
-            return redirect(url_for("editar_horario", schedule_id=horario.id))
+        db.session.commit()
+        flash("Horario actualizado correctamente.", "success")
+        return redirect(url_for("admin_horarios"))
 
     # GET: preparar mapa día_semana -> objeto ScheduleDay
     dias_map = {d.day_of_week: d for d in horario.days}
