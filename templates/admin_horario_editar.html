@@ -18,6 +18,12 @@
   .day-toggle-btn {
     width: 2rem;
   }
+  .per-day-table th,
+  .per-day-table td {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.4rem;
+  }
 </style>
 
 <div class="row">
@@ -93,7 +99,8 @@
               <button type="button"
                       class="btn btn-sm btn-outline-secondary ms-3"
                       id="copy-first-day-btn"
-                      title="Copiar configuración del primer día al resto">
+                      title="Copiar configuración del primer día al resto"
+                      style="display: none;">
                 ↓
               </button>
             </div>
@@ -101,7 +108,7 @@
 
           <div class="col-12" id="per-day-wrapper" style="display: none;">
             <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0">
+              <table class="table table-sm align-middle mb-0 per-day-table">
                 <thead class="table-light">
                   <tr>
                     <th class="text-center" style="width: 3rem;">&nbsp;</th>
@@ -322,14 +329,20 @@
       Array.from(simpleWrapper.querySelectorAll('input, select')).forEach(el => {
         el.disabled = true;
       });
-      copyBtn.disabled = false;
+      if (copyBtn) {
+        copyBtn.style.display = '';
+        copyBtn.disabled = false;
+      }
     } else {
       perDayWrapper.style.display = 'none';
       simpleWrapper.style.opacity = 1;
       Array.from(simpleWrapper.querySelectorAll('input, select')).forEach(el => {
         el.disabled = false;
       });
-      copyBtn.disabled = true;
+      if (copyBtn) {
+        copyBtn.style.display = 'none';
+        copyBtn.disabled = true;
+      }
     }
   }
 
