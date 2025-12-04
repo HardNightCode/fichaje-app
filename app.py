@@ -1888,18 +1888,19 @@ def admin_registros():
 @app.route("/admin/registros/<int:registro_id>/editar", methods=["GET", "POST"])
 @admin_required
 def editar_registro(registro_id):
-    registro = Registro.query.get_or_404(registro_id)
+    """
+    Editor de INTERVALO (entrada + salida) a partir de un id de registro
+    (puede ser el id de la entrada o de la salida).
+    Permite:
+      - Editar entrada y salida en la misma pantalla.
+      - Crear entrada/salida si falta alguna.
+      - Eliminar el intervalo completo (entrada + salida).
+    """
     usuarios = User.query.order_by(User.username).all()
 
     if request.method == "POST":
-        # Datos del formulario
+        # --------- PARTE COMÚN: usuario y ids ocultos ----------
         usuario_id_str = request.form.get("usuario_id")
-        nueva_accion = request.form.get("accion")
-        momento_str = request.form.get("momento")
-        lat_str = request.form.get("latitude", "").strip()
-        lon_str = request.form.get("longitude", "").strip()
-
-        # Validar usuario
         try:
             nuevo_usuario_id = int(usuario_id_str)
             usuario_nuevo = User.query.get(nuevo_usuario_id)
@@ -1907,60 +1908,206 @@ def editar_registro(registro_id):
                 raise ValueError
         except (TypeError, ValueError):
             flash("Usuario no válido.", "error")
-            return redirect(url_for("editar_registro", registro_id=registro.id))
+            return redirect(url_for("editar_registro", registro_id=registro_id))
 
-        # Validar acción
-        if nueva_accion not in ("entrada", "salida"):
-            flash("Acción no válida.", "error")
-            return redirect(url_for("editar_registro", registro_id=registro.id))
+        entrada_id_str = request.form.get("entrada_id", "").strip()
+        salida_id_str = request.form.get("salida_id", "").strip()
 
-        # Validar fecha/hora (input type=datetime-local -> YYYY-MM-DDTHH:MM)
-        try:
-            nuevo_momento = datetime.strptime(momento_str, "%Y-%m-%dT%H:%M")
-        except (TypeError, ValueError):
-            flash("Fecha y hora no válidas.", "error")
-            return redirect(url_for("editar_registro", registro_id=registro.id))
+        # Si se pulsa "Eliminar", borramos todo el intervalo
+        if "eliminar" in request.form:
+            if entrada_id_str:
+                entrada = Registro.query.get(int(entrada_id_str))
+                if entrada:
+                    db.session.delete(entrada)
+            if salida_id_str:
+                salida = Registro.query.get(int(salida_id_str))
+                if salida:
+                    db.session.delete(salida)
 
-        # Validar lat/lon (permitimos vacío -> None)
-        try:
-            nueva_lat = float(lat_str.replace(",", ".")) if lat_str else None
-            nueva_lon = float(lon_str.replace(",", ".")) if lon_str else None
-        except ValueError:
-            flash("Latitud/longitud no válidas.", "error")
-            return redirect(url_for("editar_registro", registro_id=registro.id))
+            db.session.commit()
+            flash("Registro (intervalo) eliminado correctamente.", "success")
+            return redirect(url_for("admin_registros"))
 
-        # Crear registro de auditoría con los valores antiguos
-        auditoria = RegistroEdicion(
-            registro_id=registro.id,
-            editor_id=current_user.id,
-            edit_time=datetime.utcnow(),
-            editor_ip=request.remote_addr,
-            old_accion=registro.accion,
-            old_momento=registro.momento,
-            old_latitude=registro.latitude,
-            old_longitude=registro.longitude,
-        )
-        db.session.add(auditoria)
+        # --------- EDICIÓN / CREACIÓN DE ENTRADA ----------
+        entrada_momento_str = request.form.get("entrada_momento", "").strip()
+        entrada_lat_str = request.form.get("entrada_latitude", "").strip()
+        entrada_lon_str = request.form.get("entrada_longitude", "").strip()
 
-        # Aplicar cambios al registro principal
-        registro.usuario_id = nuevo_usuario_id
-        registro.accion = nueva_accion
-        registro.momento = nuevo_momento
-        registro.latitude = nueva_lat
-        registro.longitude = nueva_lon
+        entrada = Registro.query.get(int(entrada_id_str)) if entrada_id_str else None
+
+        if entrada_momento_str:
+            try:
+                entrada_momento = datetime.strptime(
+                    entrada_momento_str, "%Y-%m-%dT%H:%M"
+                )
+            except (TypeError, ValueError):
+                flash("Fecha y hora de entrada no válidas.", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            try:
+                entrada_lat = float(entrada_lat_str.replace(",", ".")) if entrada_lat_str else None
+                entrada_lon = float(entrada_lon_str.replace(",", ".")) if entrada_lon_str else None
+            except ValueError:
+                flash("Latitud/longitud de entrada no válidas.", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            if entrada:
+                # Auditoría de la entrada
+                auditoria_e = RegistroEdicion(
+                    registro_id=entrada.id,
+                    editor_id=current_user.id,
+                    edit_time=datetime.utcnow(),
+                    editor_ip=request.remote_addr,
+                    old_accion=entrada.accion,
+                    old_momento=entrada.momento,
+                    old_latitude=entrada.latitude,
+                    old_longitude=entrada.longitude,
+                )
+                db.session.add(auditoria_e)
+
+                entrada.usuario_id = nuevo_usuario_id
+                entrada.accion = "entrada"
+                entrada.momento = entrada_momento
+                entrada.latitude = entrada_lat
+                entrada.longitude = entrada_lon
+            else:
+                # Crear nueva entrada
+                entrada = Registro(
+                    usuario_id=nuevo_usuario_id,
+                    accion="entrada",
+                    momento=entrada_momento,
+                    latitude=entrada_lat,
+                    longitude=entrada_lon,
+                )
+                db.session.add(entrada)
+
+        # Si entrada_momento_str está vacío:
+        #   - Si había entrada, la dejamos tal cual.
+        #   - Si no había, seguimos sin entrada (intervalo "Sin entrada").
+
+        # --------- EDICIÓN / CREACIÓN DE SALIDA ----------
+        salida_momento_str = request.form.get("salida_momento", "").strip()
+        salida_lat_str = request.form.get("salida_latitude", "").strip()
+        salida_lon_str = request.form.get("salida_longitude", "").strip()
+
+        salida = Registro.query.get(int(salida_id_str)) if salida_id_str else None
+
+        if salida_momento_str:
+            try:
+                salida_momento = datetime.strptime(
+                    salida_momento_str, "%Y-%m-%dT%H:%M"
+                )
+            except (TypeError, ValueError):
+                flash("Fecha y hora de salida no válidas.", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            try:
+                salida_lat = float(salida_lat_str.replace(",", ".")) if salida_lat_str else None
+                salida_lon = float(salida_lon_str.replace(",", ".")) if salida_lon_str else None
+            except ValueError:
+                flash("Latitud/longitud de salida no válidas.", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            if salida:
+                # Auditoría de la salida
+                auditoria_s = RegistroEdicion(
+                    registro_id=salida.id,
+                    editor_id=current_user.id,
+                    edit_time=datetime.utcnow(),
+                    editor_ip=request.remote_addr,
+                    old_accion=salida.accion,
+                    old_momento=salida.momento,
+                    old_latitude=salida.latitude,
+                    old_longitude=salida.longitude,
+                )
+                db.session.add(auditoria_s)
+
+                salida.usuario_id = nuevo_usuario_id
+                salida.accion = "salida"
+                salida.momento = salida_momento
+                salida.latitude = salida_lat
+                salida.longitude = salida_lon
+            else:
+                # Crear nueva salida
+                salida = Registro(
+                    usuario_id=nuevo_usuario_id,
+                    accion="salida",
+                    momento=salida_momento,
+                    latitude=salida_lat,
+                    longitude=salida_lon,
+                )
+                db.session.add(salida)
+
+        # Si salida_momento_str está vacío:
+        #   - Si había salida, la dejamos tal cual.
+        #   - Si no había, seguimos sin salida (intervalo "Sin salida").
 
         db.session.commit()
         flash("Registro actualizado correctamente.", "success")
         return redirect(url_for("admin_registros"))
 
-    # GET: preparar valor para el input datetime-local
-    momento_val = registro.momento.strftime("%Y-%m-%dT%H:%M") if registro.momento else ""
+    # ------------------- GET: construir INTERVALO -------------------
+    # Partimos de un registro cualquiera (entrada o salida) para encontrar su intervalo
+    reg_base = Registro.query.get_or_404(registro_id)
+
+    # Todos los registros de ese usuario
+    regs_usuario = (
+        Registro.query.filter_by(usuario_id=reg_base.usuario_id)
+        .order_by(Registro.momento.asc())
+        .all()
+    )
+    intervalos = agrupar_registros_en_intervalos(regs_usuario)
+
+    intervalo = None
+    for it in intervalos:
+        if (it.entrada and it.entrada.id == registro_id) or \
+           (it.salida and it.salida.id == registro_id) or \
+           (it.row_id == registro_id):
+            intervalo = it
+            break
+
+    # Si por lo que sea no encontramos el intervalo, montamos uno mínimo
+    if intervalo is None:
+        if reg_base.accion == "entrada":
+            entrada = reg_base
+            salida = None
+        else:
+            entrada = None
+            salida = reg_base
+
+        intervalo = SimpleNamespace(
+            usuario=reg_base.usuario,
+            entrada=entrada,
+            salida=salida,
+        )
+
+    entrada = intervalo.entrada
+    salida = intervalo.salida
+
+    entrada_momento_val = (
+        entrada.momento.strftime("%Y-%m-%dT%H:%M") if entrada and entrada.momento else ""
+    )
+    salida_momento_val = (
+        salida.momento.strftime("%Y-%m-%dT%H:%M") if salida and salida.momento else ""
+    )
+
+    entrada_lat = f"{entrada.latitude:.6f}" if entrada and entrada.latitude is not None else ""
+    entrada_lon = f"{entrada.longitude:.6f}" if entrada and entrada.longitude is not None else ""
+    salida_lat = f"{salida.latitude:.6f}" if salida and salida.latitude is not None else ""
+    salida_lon = f"{salida.longitude:.6f}" if salida and salida.longitude is not None else ""
 
     return render_template(
         "admin_registro_editar.html",
-        registro=registro,
         usuarios=usuarios,
-        momento_val=momento_val,
+        intervalo=intervalo,
+        entrada=entrada,
+        salida=salida,
+        entrada_momento_val=entrada_momento_val,
+        salida_momento_val=salida_momento_val,
+        entrada_lat=entrada_lat,
+        entrada_lon=entrada_lon,
+        salida_lat=salida_lat,
+        salida_lon=salida_lon,
     )
 
 def generar_csv(intervalos):

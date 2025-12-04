@@ -1,79 +1,117 @@
 {% extends "base.html" %}
 
-{% block title %}Editar registro{% endblock %}
+{% block title %}Editar registro - Administración{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Editar registro #{{ registro.id }}</h1>
+<h1 class="mb-4">Editar registro (intervalo entrada / salida)</h1>
 
-<div class="card">
-  <div class="card-header">
-    Datos del registro
+<form id="form-principal" method="post" class="row g-4">
+
+  <div class="col-12 col-md-4">
+    <label class="form-label">Usuario</label>
+    <select name="usuario_id" class="form-select" required>
+      {% for u in usuarios %}
+        <option value="{{ u.id }}"
+                {% if intervalo.usuario and intervalo.usuario.id == u.id %}selected{% endif %}>
+          {{ u.username }} ({{ u.role }})
+        </option>
+      {% endfor %}
+    </select>
+    <div class="form-text">
+      El usuario se aplicará tanto a la entrada como a la salida.
+    </div>
   </div>
-  <div class="card-body">
-    <form method="post" action="{{ url_for('editar_registro', registro_id=registro.id) }}">
 
-      <!-- Usuario -->
-      <div class="mb-3">
-        <label class="form-label">Usuario</label>
-        <select name="usuario_id" class="form-select" required>
-          {% for u in usuarios %}
-            <option value="{{ u.id }}"
-              {% if u.id == registro.usuario_id %}selected{% endif %}>
-              {{ u.username }} ({{ u.role }})
-            </option>
-          {% endfor %}
-        </select>
+  <div class="col-12 col-lg-6">
+    <div class="card mb-3">
+      <div class="card-header">
+        Entrada
       </div>
+      <div class="card-body">
+        <input type="hidden" name="entrada_id" value="{{ entrada.id if entrada }}">
 
-      <!-- Acción -->
-      <div class="mb-3">
-        <label class="form-label">Acción</label>
-        <select name="accion" class="form-select" required>
-          <option value="entrada" {% if registro.accion == 'entrada' %}selected{% endif %}>Entrada</option>
-          <option value="salida" {% if registro.accion == 'salida' %}selected{% endif %}>Salida</option>
-        </select>
-      </div>
+        <div class="mb-3">
+          <label class="form-label">Fecha y hora de entrada</label>
+          <input type="datetime-local"
+                 name="entrada_momento"
+                 class="form-control"
+                 value="{{ entrada_momento_val }}">
+          <div class="form-text">
+            Si lo dejas vacío, no se creará ni modificará la entrada.
+          </div>
+        </div>
 
-      <!-- Fecha y hora -->
-      <div class="mb-3">
-        <label class="form-label">Fecha y hora (UTC)</label>
-        <input type="datetime-local"
-               name="momento"
-               class="form-control"
-               value="{{ momento_val }}"
-               required>
-        <div class="form-text">
-          Se guarda en UTC, igual que el resto de registros.
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label">Latitud</label>
+            <input type="text"
+                   name="entrada_latitude"
+                   class="form-control"
+                   value="{{ entrada_lat }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Longitud</label>
+            <input type="text"
+                   name="entrada_longitude"
+                   class="form-control"
+                   value="{{ entrada_lon }}">
+          </div>
         </div>
       </div>
+    </div>
 
-      <!-- Latitud -->
-      <div class="mb-3">
-        <label class="form-label">Latitud</label>
-        <input type="text"
-               name="latitude"
-               class="form-control"
-               value="{% if registro.latitude is not none %}{{ '%.6f'|format(registro.latitude) }}{% endif %}">
+    <div class="card">
+      <div class="card-header">
+        Salida
       </div>
+      <div class="card-body">
+        <input type="hidden" name="salida_id" value="{{ salida.id if salida }}">
 
-      <!-- Longitud -->
-      <div class="mb-3">
-        <label class="form-label">Longitud</label>
-        <input type="text"
-               name="longitude"
-               class="form-control"
-               value="{% if registro.longitude is not none %}{{ '%.6f'|format(registro.longitude) }}{% endif %}">
-      </div>
+        <div class="mb-3">
+          <label class="form-label">Fecha y hora de salida</label>
+          <input type="datetime-local"
+                 name="salida_momento"
+                 class="form-control"
+                 value="{{ salida_momento_val }}">
+          <div class="form-text">
+            Puedes dejarla vacía si todavía no se ha fichado la salida
+            y quieres esperar al fichaje real.
+          </div>
+        </div>
 
-      <div class="d-flex justify-content-between mt-4">
-        <a href="{{ url_for('admin_registros') }}" class="btn btn-outline-secondary">
-          Volver
-        </a>
-        <button type="submit" class="btn btn-primary">
-          Guardar cambios
-        </button>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label">Latitud</label>
+            <input type="text"
+                   name="salida_latitude"
+                   class="form-control"
+                   value="{{ salida_lat }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Longitud</label>
+            <input type="text"
+                   name="salida_longitude"
+                   class="form-control"
+                   value="{{ salida_lon }}">
+          </div>
+        </div>
       </div>
-    </form>
+    </div>
   </div>
+
+</form>
+
+<div class="mt-4">
+  <button type="submit" class="btn btn-primary me-2" form="form-principal">Guardar cambios</button>
+  <button type="submit"
+          class="btn btn-danger me-2"
+          name="eliminar"
+          value="1"
+          form="form-principal"
+          onclick="return confirm('¿Eliminar por completo este intervalo (entrada y salida)?');">
+    Eliminar registro
+  </button>
+  <a href="{{ url_for('admin_registros') }}" class="btn btn-secondary">Volver</a>
 </div>
+
 {% endblock %}

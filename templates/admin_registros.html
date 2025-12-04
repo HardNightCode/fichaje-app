@@ -14,10 +14,12 @@
       <div class="col-md-3">
         <label class="form-label">Usuario</label>
         <select name="usuario_id" class="form-select">
-          <option value="all" {% if usuario_seleccionado == 'all' %}selected{% endif %}>Todos</option>
+          <option value="all" {% if usuario_seleccionado == 'all' %}selected{% endif %}>
+            Todos
+          </option>
           {% for u in usuarios %}
             <option value="{{ u.id }}"
-              {% if usuario_seleccionado|int == u.id %}selected{% endif %}>
+                    {% if usuario_seleccionado|int == u.id %}selected{% endif %}>
               {{ u.username }} ({{ u.role }})
             </option>
           {% endfor %}
@@ -28,10 +30,18 @@
       <div class="col-md-3">
         <label class="form-label">Tipo de periodo</label>
         <select name="tipo_periodo" id="tipo_periodo" class="form-select">
-          <option value="rango" {% if tipo_periodo == 'rango' %}selected{% endif %}>Rango de fechas</option>
-          <option value="semanal" {% if tipo_periodo == 'semanal' %}selected{% endif %}>Semana</option>
-          <option value="mensual" {% if tipo_periodo == 'mensual' %}selected{% endif %}>Mes</option>
-          <option value="historico" {% if tipo_periodo == 'historico' %}selected{% endif %}>Histórico (todos)</option>
+          <option value="rango" {% if tipo_periodo == 'rango' %}selected{% endif %}>
+            Rango de fechas
+          </option>
+          <option value="semanal" {% if tipo_periodo == 'semanal' %}selected{% endif %}>
+            Semana
+          </option>
+          <option value="mensual" {% if tipo_periodo == 'mensual' %}selected{% endif %}>
+            Mes
+          </option>
+          <option value="historico" {% if tipo_periodo == 'historico' %}selected{% endif %}>
+            Histórico (todos)
+          </option>
         </select>
       </div>
 
@@ -82,7 +92,7 @@
           </option>
           {% for loc in ubicaciones_definidas %}
             <option value="{{ loc.id }}"
-              {% if ubicacion_filtro|int == loc.id %}selected{% endif %}>
+                    {% if ubicacion_filtro|int == loc.id %}selected{% endif %}>
               {{ loc.name }}
             </option>
           {% endfor %}
@@ -223,18 +233,10 @@
                 {% endif %}
 
                 <div class="mt-2">
-                  {% if it.entrada %}
-                    <a href="{{ url_for('editar_registro', registro_id=it.entrada.id) }}"
-                       class="btn btn-sm btn-outline-primary">
-                      Editar entrada
-                    </a>
-                  {% endif %}
-                  {% if it.salida %}
-                    <a href="{{ url_for('editar_registro', registro_id=it.salida.id) }}"
-                       class="btn btn-sm btn-outline-secondary ms-1">
-                      Editar salida
-                    </a>
-                  {% endif %}
+                  <a href="{{ url_for('editar_registro', registro_id=it.row_id) }}"
+                     class="btn btn-sm btn-primary">
+                    Editar
+                  </a>
                 </div>
               </td>
             </tr>
