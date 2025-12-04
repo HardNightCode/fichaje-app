@@ -426,6 +426,27 @@ def index():
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
+    # --- Lógica para saber qué botón toca ahora ---
+    ultimo_registro = (
+        Registro.query.filter_by(usuario_id=current_user.id)
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+
+    # Por defecto, si no hay registros: se permite ENTRADA y se bloquea SALIDA
+    if ultimo_registro is None:
+        bloquear_entrada = False
+        bloquear_salida = True
+    else:
+        if ultimo_registro.accion == "entrada":
+            # Falta la salida → solo se debe poder fichar salida
+            bloquear_entrada = True
+            bloquear_salida = False
+        else:
+            # Última acción fue salida → toca entrada
+            bloquear_entrada = False
+            bloquear_salida = True
+
     return render_template(
         "index.html",
         intervalos_usuario=intervalos_usuario,
@@ -433,8 +454,9 @@ def index():
         ubicaciones_usuario=ubicaciones_usuario,
         tiene_ubicaciones=tiene_ubicaciones,
         tiene_flexible=tiene_flexible,
+        bloquear_entrada=bloquear_entrada,
+        bloquear_salida=bloquear_salida,
     )
-
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
 @admin_required

@@ -5,6 +5,13 @@
 {% block content %}
 <h1 class="mb-4">Panel de fichaje</h1>
 
+<style>
+  .btn-soft-disabled {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+</style>>
+
 <div class="row">
   <div class="col-lg-5">
     <div class="card mb-4">
@@ -29,14 +36,21 @@
           </p>
 
           <div class="d-grid gap-2">
-            <button type="button" class="btn btn-success btn-lg"
+            {# Botón ENTRADA #}
+            <button type="button"
+                    class="btn btn-success btn-lg
+                          {% if not tiene_ubicaciones or bloquear_entrada %}btn-soft-disabled{% endif %}"
                     onclick="fichar('entrada')"
-                    {% if not tiene_ubicaciones %}disabled{% endif %}>
+                    {% if not tiene_ubicaciones or bloquear_entrada %}disabled{% endif %}>
               Fichar ENTRADA
             </button>
-            <button type="button" class="btn btn-danger btn-lg"
+
+            {# Botón SALIDA #}
+            <button type="button"
+                    class="btn btn-danger btn-lg
+                          {% if not tiene_ubicaciones or bloquear_salida %}btn-soft-disabled{% endif %}"
                     onclick="fichar('salida')"
-                    {% if not tiene_ubicaciones %}disabled{% endif %}>
+                    {% if not tiene_ubicaciones or bloquear_salida %}disabled{% endif %}>
               Fichar SALIDA
             </button>
           </div>
