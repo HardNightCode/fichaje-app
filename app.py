@@ -1078,6 +1078,18 @@ def admin_usuario_ficha(user_id):
 # Helpers de ubicaciones (soporta esquema antiguo y nuevo)
 # ======================================================
 
+def formatear_timedelta(td: timedelta) -> str:
+    """
+    Formatea un timedelta a formato 'HH:mm'.
+    """
+    if td is None:
+        return "0:00"
+
+    total_seconds = int(td.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    return f"{hours:02}:{minutes:02}"
+
 def obtener_ubicaciones_usuario(user):
     """
     Devuelve una lista de Location asociadas al usuario.
@@ -2338,14 +2350,16 @@ def generar_pdf(intervalos, tipo_periodo: str):
 
     resumen_horas = calcular_horas_trabajadas(registros_flat)
 
+    # Renderizar el PDF
     html = render_template(
         "informe_pdf.html",
         intervalos=intervalos,
         resumen_horas=resumen_horas,
         tipo_periodo=tipo_periodo,
+        formatear_timedelta=formatear_timedelta  # Asegúrate de pasar la función
     )
     return render_pdf(HTML(string=html))
-
+    
 # ======================================================
 # Login / Logout
 # ======================================================
