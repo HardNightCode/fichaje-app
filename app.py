@@ -1119,6 +1119,152 @@ def get_or_create_schedule_settings(user):
         db.session.commit()
     return settings
 
+def obtener_horario_aplicable(usuario, dt):
+    """
+    Devuelve un Schedule aplicable al usuario para la fecha dt.
+    Versión simple: si el usuario tiene varios horarios, usamos el primero.
+    Si no tiene ninguno, devolvemos None.
+    """
+    if not hasattr(usuario, "schedules"):
+        return None
+
+    schedules = list(usuario.schedules)
+    if not schedules:
+        return None
+
+    # TODO (futuro): si settings.detect_schedule está activo, elegir el que mejor encaje
+    return schedules[0]
+
+
+def calcular_jornada_teorica(schedule: Schedule, dt: datetime.date) -> timedelta:
+    """
+    Devuelve la duración teórica de trabajo para un día concreto (dt)
+    según el horario (global o por días).
+    """
+    from datetime import datetime, timedelta, time
+
+    # MODO POR DÍAS
+    if schedule.use_per_day:
+        dow = dt.weekday()  # 0 = lunes ... 6 = domingo
+        dia = next((d for d in schedule.days if d.day_of_week == dow), None)
+        if dia is None:
+            # Día sin configuración -> no se trabaja
+            return timedelta(0)
+
+        inicio = datetime.combine(dt, dia.start_time)
+        fin = datetime.combine(dt, dia.end_time)
+
+        # Si cruza medianoche
+        if fin <= inicio:
+            fin += timedelta(days=1)
+
+        duracion = fin - inicio
+
+        # Descanso
+        if dia.break_type == "fixed":
+            if dia.break_start and dia.break_end:
+                b_inicio = datetime.combine(dt, dia.break_start)
+                b_fin = datetime.combine(dt, dia.break_end)
+                if b_fin <= b_inicio:
+                    b_fin += timedelta(days=1)
+                duracion -= (b_fin - b_inicio)
+        elif dia.break_type == "flexible":
+            if dia.break_minutes:
+                duracion -= timedelta(minutes=dia.break_minutes or 0)
+
+        if duracion.total_seconds() < 0:
+            duracion = timedelta(0)
+
+        return duracion
+
+    # MODO SIMPLE (mismas horas todos los días)
+    if not schedule.start_time or not schedule.end_time:
+        return timedelta(0)
+
+    inicio = datetime.combine(dt, schedule.start_time)
+    fin = datetime.combine(dt, schedule.end_time)
+
+    if fin <= inicio:
+        fin += timedelta(days=1)
+
+    duracion = fin - inicio
+
+    if schedule.break_type == "fixed":
+        if schedule.break_start and schedule.break_end:
+            b_inicio = datetime.combine(dt, schedule.break_start)
+            b_fin = datetime.combine(dt, schedule.break_end)
+            if b_fin <= b_inicio:
+                b_fin += timedelta(days=1)
+            duracion -= (b_fin - b_inicio)
+    elif schedule.break_type == "flexible":
+        if schedule.break_minutes:
+            duracion -= timedelta(minutes=schedule.break_minutes or 0)
+
+    if duracion.total_seconds() < 0:
+        duracion = timedelta(0)
+
+    return duracion
+
+
+def calcular_duracion_trabajada_intervalo(it) -> Optional[timedelta]:
+    """
+    Devuelve la duración real del intervalo (entrada->salida).
+    Si falta entrada o salida, devuelve None (no calculamos todavía).
+    """
+    if it.entrada_momento is None or it.salida_momento is None:
+        return None
+
+    inicio = it.entrada_momento
+    fin = it.salida_momento
+    real = fin - inicio
+
+    # Si el fichaje cruza medianoche (salida "antes" que entrada), corregimos
+    if real.total_seconds() < 0:
+        real += timedelta(days=1)
+
+    return real
+
+
+def calcular_extra_y_defecto_intervalo(it):
+    """
+    Calcula (horas_extra, horas_defecto) como timedeltas para un intervalo.
+    - Si el usuario no tiene horario o falta entrada/salida -> (0, 0).
+    - Si el día no es laborable en ese horario -> todo lo trabajado es extra.
+    """
+    if not it.usuario:
+        return timedelta(0), timedelta(0)
+
+    dur_real = calcular_duracion_trabajada_intervalo(it)
+    if dur_real is None:
+        # Sin entrada/salida completa -> no calculamos aún
+        return timedelta(0), timedelta(0)
+
+    user = it.usuario
+    fecha = it.entrada_momento.date()
+
+    schedule = obtener_horario_aplicable(user, fecha)
+    if schedule is None:
+        # Sin horario asignado -> todo lo trabajado es extra
+        return dur_real, timedelta(0)
+
+    dur_teorica = calcular_jornada_teorica(schedule, fecha)
+
+    if dur_teorica.total_seconds() == 0:
+        # Día no laborable en ese horario -> todo es extra
+        return dur_real, timedelta(0)
+
+    diff = dur_real - dur_teorica
+
+    if diff.total_seconds() > 0:
+        # Más de lo teórico -> extra
+        return diff, timedelta(0)
+    elif diff.total_seconds() < 0:
+        # Menos de lo teórico -> defecto
+        return timedelta(0), -diff
+    else:
+        return timedelta(0), timedelta(0)
+
+
 def determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones, margen_extra_m=10.0):
     """
     Dado un par (lat, lon) y una lista de Location,
@@ -1846,6 +1992,12 @@ def admin_registros():
         # ---- Agrupar en intervalos Entrada/Salida ----
         intervalos = agrupar_registros_en_intervalos(registros)
 
+        # ---- Calcular horas extra / defecto por intervalo ----
+        for it in intervalos:
+            extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+            it.horas_extra = extra_td
+            it.horas_defecto = defecto_td
+
         # ---- Exportaciones ----
         if accion == "csv":
             return generar_csv(intervalos)
@@ -2136,13 +2288,21 @@ def generar_csv(intervalos):
         else:
             fs = ""
 
+        # Formatear horas extra/defecto si existen
+        he = ""
+        hd = ""
+        if hasattr(it, "horas_extra") and it.horas_extra.total_seconds() > 0:
+            he = formatear_timedelta(it.horas_extra)
+        if hasattr(it, "horas_defecto") and it.horas_defecto.total_seconds() > 0:
+            hd = formatear_timedelta(it.horas_defecto)
+
         writer.writerow([
             it.usuario.username if it.usuario else "",
             fe,
             fs,
             it.ubicacion_label or "",
-            "",  # Horas extra (a rellenar cuando se calcule)
-            "",  # Horas en defecto
+            he,  # Horas extra
+            hd,  # Horas en defecto
         ])
 
     csv_data = output.getvalue().encode("utf-8-sig")
@@ -2161,6 +2321,12 @@ def generar_pdf(intervalos, tipo_periodo: str):
     Genera un PDF usando la plantilla informe_pdf.html,
     mostrando intervalos Entrada/Salida.
     """
+
+    # Calcular horas extra/defecto para cada intervalo
+    for it in intervalos:
+        extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+        it.horas_extra = extra_td
+        it.horas_defecto = defecto_td
 
     # Para el resumen de horas, aplanamos de nuevo a lista de registros
     registros_flat = []

@@ -97,6 +97,20 @@
                     <td>
                         {{ it.ubicacion_label }}
                     </td>
+                    <td>
+                    {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}
+                        {{ formatear_timedelta(it.horas_extra) }}
+                    {% else %}
+                        -
+                    {% endif %}
+                    </td>
+                    <td>
+                    {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}
+                        {{ formatear_timedelta(it.horas_defecto) }}
+                    {% else %}
+                        -
+                    {% endif %}
+                    </td>
                 </tr>
             {% endfor %}
             </tbody>
