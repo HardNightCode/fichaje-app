@@ -73,6 +73,8 @@
                     <th>Usuario</th>
                     <th>Entrada</th>
                     <th>Salida</th>
+                    <th>Horas extra</th>
+                    <th>Horas defecto</th>
                     <th>Ubicación</th>
                 </tr>
             </thead>
@@ -95,17 +97,52 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if it.horas_extra %}
-                            {{ formatear_timedelta(it.horas_extra) }}
-                        {% else %}
-                            -
-                        {% endif %}
+                    {% if it.horas_extra %}
+                        {{ formatear_timedelta(it.horas_extra) }}
+                    {% else %}
+                        -
+                    {% endif %}
                     </td>
                     <td>
-                        {% if it.horas_defecto %}
-                            {{ formatear_timedelta(it.horas_defecto) }}
+                    {% if it.horas_defecto %}
+                        {{ formatear_timedelta(it.horas_defecto) }}
+                    {% else %}
+                        -
+                    {% endif %}
+                    </td>
+                    <td>
+                        {% if it.label_entrada or it.label_salida %}
+                            {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
+                                {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                                    <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" class="link-primary" target="_blank">
+                                        {{ it.label_entrada }}
+                                    </a>
+                                {% else %}
+                                    {{ it.label_entrada }}
+                                {% endif %}
+                            {% else %}
+                                {% if it.label_entrada %}
+                                    {% if it.entrada_lat is not none and it.entrada_lon is not none %}
+                                        <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" class="link-primary" target="_blank">
+                                            {{ it.label_entrada }}
+                                        </a>
+                                    {% else %}
+                                        {{ it.label_entrada }}
+                                    {% endif %}
+                                {% endif %}
+                                {% if it.label_entrada and it.label_salida %} - {% endif %}
+                                {% if it.label_salida %}
+                                    {% if it.salida_lat is not none and it.salida_lon is not none %}
+                                        <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}" class="link-primary" target="_blank">
+                                            {{ it.label_salida }}
+                                        </a>
+                                    {% else %}
+                                        {{ it.label_salida }}
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
                         {% else %}
-                            -
+                            <span class="text-muted">Sin datos</span>
                         {% endif %}
                     </td>
                 </tr>
