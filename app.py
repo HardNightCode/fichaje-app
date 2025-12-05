@@ -426,15 +426,15 @@ def index():
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
-    # --- Lógica para saber qué botón toca ahora ---
+    # --- Lógica para saber qué botón toca ahora (entrada/salida) ---
     ultimo_registro = (
         Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.desc())
         .first()
     )
 
-    # Por defecto, si no hay registros: se permite ENTRADA y se bloquea SALIDA
     if ultimo_registro is None:
+        # No hay registros: se permite ENTRADA y se bloquea SALIDA
         bloquear_entrada = False
         bloquear_salida = True
     else:
@@ -447,6 +447,24 @@ def index():
             bloquear_entrada = False
             bloquear_salida = True
 
+    # --- ¿Tiene descanso configurado hoy según su horario? ---
+    hoy = datetime.now().date()
+    schedule = obtener_horario_aplicable(current_user, hoy)
+    tiene_descanso = False
+
+    if schedule:
+        if schedule.use_per_day:
+            dow = hoy.weekday()
+            dia = next((d for d in schedule.days if d.day_of_week == dow), None)
+            if dia and dia.break_type in ("fixed", "flexible"):
+                tiene_descanso = True
+        else:
+            if schedule.break_type in ("fixed", "flexible"):
+                tiene_descanso = True
+
+    # Por ahora no bloqueamos el botón de descanso por lógica extra
+    no_puede_descansar = False
+
     return render_template(
         "index.html",
         intervalos_usuario=intervalos_usuario,
@@ -456,6 +474,8 @@ def index():
         tiene_flexible=tiene_flexible,
         bloquear_entrada=bloquear_entrada,
         bloquear_salida=bloquear_salida,
+        tiene_descanso=tiene_descanso,
+        no_puede_descansar=no_puede_descansar,
     )
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
@@ -1618,31 +1638,11 @@ def agrupar_registros_en_intervalos(registros):
 # Método para calcular las horas trabajadas considerando los descansos
 def calcular_horas_trabajadas(registros):
     """
-    Calcula el total de horas trabajadas considerando los descansos.
+    Delegamos en la implementación original de services_fichaje para no
+    duplicar lógica aquí y evitar errores.
     """
-    total = defaultdict(timedelta)
-
-    for registro in registros:
-        usuario = registro.usuario
-        if usuario is None:
-            continue
-
-        # Calcular la duración real
-        if registro.accion == "entrada":
-            entrada = registro.momento
-            salida = obtener_salida_para_entrada(entrada, usuario)  # Debes definir la función para obtener la salida
-            if salida:
-                horas_trabajadas = salida - entrada
-
-                # Ajustar si hay descanso
-                descanso = obtener_descanso(usuario, entrada, salida)
-                if descanso < timedelta(minutes=0):  # Si el descanso es menor, se toma el total estipulado
-                    descanso = obtener_descanso_estipulado(usuario)
-
-                horas_trabajadas -= descanso  # Descontamos el tiempo de descanso
-                total[usuario.username] += horas_trabajadas
-
-    return total
+    from services_fichaje import calcular_horas_trabajadas as _calc
+    return _calc(registros)
 
 # Implementar funciones adicionales para manejar descansos y obtener horarios
 def obtener_descanso(usuario, entrada, salida):

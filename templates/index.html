@@ -81,13 +81,15 @@
               Fichar SALIDA
             </button>
 
+            {# Botón DESCANSO (solo si el horario tiene descanso) #}
             {% if tiene_descanso %}
-              <div class="mt-3">
-                <button type="button" id="btn-descanso" class="btn btn-warning btn-lg"
-                        onclick="toggleDescanso()" {% if no_puede_descansar %} disabled {% endif %}>
-                  Iniciar descanso
-                </button>
-              </div>
+              <button type="button"
+                      id="btn-descanso"
+                      class="btn btn-warning btn-lg"
+                      onclick="toggleDescanso()"
+                      {% if no_puede_descansar %}disabled{% endif %}>
+                Iniciar descanso
+              </button>
             {% endif %}
           </div>
 
@@ -213,18 +215,46 @@
 
 {% block scripts %}
 <script>
-  let descansoActivo = false;  // Estado de descanso
+  let descansoActivo = false;
 
-  // Cambiar entre "Iniciar descanso" y "Terminar descanso"
-  function toggleDescanso() {
-    const btn = document.getElementById("btn-descanso");
-    if (descansoActivo) {
-      btn.innerHTML = "Iniciar descanso";
-      descansoActivo = false;
-    } else {
-      btn.innerHTML = "Terminar descanso";
-      descansoActivo = true;
+  function fichar(accion) {
+    const form = document.getElementById('form-fichar');
+    const accionInput = document.getElementById('accion');
+    const latInput = document.getElementById('lat');
+    const lonInput = document.getElementById('lon');
+
+    if (!navigator.geolocation) {
+      alert("Tu navegador no soporta geolocalización.");
+      return;
     }
+
+    accionInput.value = accion;
+
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        latInput.value = pos.coords.latitude;
+        lonInput.value = pos.coords.longitude;
+        form.submit();
+      },
+      function(err) {
+        console.error(err);
+        alert("No se pudo obtener tu ubicación. Revisa los permisos de geolocalización.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+  }
+
+  function toggleDescanso() {
+    const btn = document.getElementById('btn-descanso');
+    if (!btn) return;
+
+    descansoActivo = !descansoActivo;
+    btn.textContent = descansoActivo ? 'Terminar descanso' : 'Iniciar descanso';
+    // De momento es solo visual. La lógica de envío al backend la conectamos después.
   }
 </script>
 {% endblock %}
