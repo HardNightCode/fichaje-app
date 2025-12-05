@@ -1615,6 +1615,60 @@ def agrupar_registros_en_intervalos(registros):
     intervalos_limpios.sort(key=key_intervalo, reverse=True)
     return intervalos_limpios
 
+# Método para calcular las horas trabajadas considerando los descansos
+def calcular_horas_trabajadas(registros):
+    """
+    Calcula el total de horas trabajadas considerando los descansos.
+    """
+    total = defaultdict(timedelta)
+
+    for registro in registros:
+        usuario = registro.usuario
+        if usuario is None:
+            continue
+
+        # Calcular la duración real
+        if registro.accion == "entrada":
+            entrada = registro.momento
+            salida = obtener_salida_para_entrada(entrada, usuario)  # Debes definir la función para obtener la salida
+            if salida:
+                horas_trabajadas = salida - entrada
+
+                # Ajustar si hay descanso
+                descanso = obtener_descanso(usuario, entrada, salida)
+                if descanso < timedelta(minutes=0):  # Si el descanso es menor, se toma el total estipulado
+                    descanso = obtener_descanso_estipulado(usuario)
+
+                horas_trabajadas -= descanso  # Descontamos el tiempo de descanso
+                total[usuario.username] += horas_trabajadas
+
+    return total
+
+# Implementar funciones adicionales para manejar descansos y obtener horarios
+def obtener_descanso(usuario, entrada, salida):
+    """
+    Devuelve el tiempo de descanso entre entrada y salida para un usuario
+    considerando el tipo de descanso.
+    """
+    schedule = obtener_horario_aplicable(usuario, entrada.date())  # Obtener horario de usuario para ese día
+    if not schedule or schedule.break_type == "none":
+        return timedelta(0)
+
+    if schedule.break_type == "fixed":
+        # Implementar lógica para descanso fijo
+        return calcular_descanso_fijo(schedule, entrada, salida)
+    
+    elif schedule.break_type == "flexible":
+        # Implementar lógica para descanso flexible
+        return timedelta(minutes=schedule.break_minutes)
+
+def obtener_descanso_estipulado(usuario):
+    """
+    Devuelve el descanso estipulado por el horario para el usuario.
+    """
+    schedule = obtener_horario_aplicable(usuario, datetime.today().date())
+    return timedelta(minutes=schedule.break_minutes) if schedule else timedelta(0)
+
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():

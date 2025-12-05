@@ -80,6 +80,15 @@
                     {% if not tiene_ubicaciones or bloquear_salida %}disabled{% endif %}>
               Fichar SALIDA
             </button>
+
+            {% if tiene_descanso %}
+              <div class="mt-3">
+                <button type="button" id="btn-descanso" class="btn btn-warning btn-lg"
+                        onclick="toggleDescanso()" {% if no_puede_descansar %} disabled {% endif %}>
+                  Iniciar descanso
+                </button>
+              </div>
+            {% endif %}
           </div>
 
           {% if tiene_flexible %}
@@ -151,7 +160,6 @@
                   <td>
                     {% if it.label_entrada or it.label_salida %}
                       {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
-                        {# Misma ubicación: una sola etiqueta clicable #}
                         {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                           <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
                              class="link-primary" target="_blank">
@@ -161,7 +169,6 @@
                           {{ it.label_entrada }}
                         {% endif %}
                       {% else %}
-                        {# Distintas o falta alguna #}
                         {% if it.label_entrada %}
                           {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                             <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
@@ -206,35 +213,18 @@
 
 {% block scripts %}
 <script>
-  function fichar(accion) {
-    const form = document.getElementById('form-fichar');
-    const accionInput = document.getElementById('accion');
-    const latInput = document.getElementById('lat');
-    const lonInput = document.getElementById('lon');
+  let descansoActivo = false;  // Estado de descanso
 
-    if (!navigator.geolocation) {
-      alert("Tu navegador no soporta geolocalización.");
-      return;
+  // Cambiar entre "Iniciar descanso" y "Terminar descanso"
+  function toggleDescanso() {
+    const btn = document.getElementById("btn-descanso");
+    if (descansoActivo) {
+      btn.innerHTML = "Iniciar descanso";
+      descansoActivo = false;
+    } else {
+      btn.innerHTML = "Terminar descanso";
+      descansoActivo = true;
     }
-
-    accionInput.value = accion;
-
-    navigator.geolocation.getCurrentPosition(
-      function(pos) {
-        latInput.value = pos.coords.latitude;
-        lonInput.value = pos.coords.longitude;
-        form.submit();
-      },
-      function(err) {
-        console.error(err);
-        alert("No se pudo obtener tu ubicación. Revisa los permisos de geolocalización.");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
   }
 </script>
 {% endblock %}
