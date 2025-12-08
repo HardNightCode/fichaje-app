@@ -416,6 +416,28 @@ def index():
     # Intervalos Entrada/Salida SOLO del usuario actual
     intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
 
+    # --- Anotar descanso por intervalo ---
+    for it in intervalos_usuario:
+        if it.usuario and it.entrada_momento:
+            descanso_td, en_curso, inicio = calcular_descanso_intervalo_para_usuario(
+                it.usuario.id,
+                it.entrada_momento,
+                it.salida_momento,
+            )
+        else:
+            descanso_td, en_curso, inicio = timedelta(0), False, None
+
+        it.descanso_td = descanso_td
+        it.descanso_en_curso = en_curso
+        it.descanso_inicio_iso = inicio.isoformat() if inicio else ""
+
+        if en_curso:
+            it.descanso_label = "Descansando"
+        elif descanso_td.total_seconds() > 0:
+            it.descanso_label = formatear_timedelta(descanso_td)
+        else:
+            it.descanso_label = "Sin descanso"
+
     # Resumen: total de horas del usuario actual
     horas_por_usuario = calcular_horas_trabajadas(registros_usuario)
     total_td = horas_por_usuario.get(current_user.username, timedelta())
@@ -489,7 +511,7 @@ def index():
         if not ultimo_salida or ultimo_entrada.momento > ultimo_salida.momento:
             entrada_abierta = True
 
-    # --- ¿Hay descanso en curso? ---
+    # --- ¿Hay descanso en curso? (global, para el botón) ---
     ultimo_descanso_inicio = (
         Registro.query.filter(
             Registro.usuario_id == current_user.id,
@@ -509,18 +531,15 @@ def index():
 
     descanso_en_curso = False
     if ultimo_descanso_inicio and entrada_abierta:
-        # Descanso en curso si no hay fin, o el último inicio es posterior al último fin
         if (not ultimo_descanso_fin) or (
             ultimo_descanso_inicio.momento > ultimo_descanso_fin.momento
         ):
-            # Opcionalmente, comprobamos que el descanso sea después de la última entrada
             if (not ultimo_entrada) or (
                 ultimo_descanso_inicio.momento >= ultimo_entrada.momento
             ):
                 descanso_en_curso = True
 
     # --- Bloqueo del botón de descanso ---
-    # Solo se puede usar descanso si hay entrada abierta.
     if not entrada_abierta:
         bloquear_descanso = True
     else:
@@ -1455,6 +1474,62 @@ def calcular_descanso_intervalos(intervalos, registros, ahora=None):
             it.descanso_label = formatear_timedelta(total)
         else:
             it.descanso_label = "Sin descanso"
+
+def calcular_descanso_intervalo_para_usuario(usuario_id, entrada_momento, salida_momento=None):
+    """
+    Calcula el tiempo de descanso real dentro de un intervalo [entrada_momento, salida_momento]
+    usando registros 'descanso_inicio' / 'descanso_fin' del usuario.
+
+    Devuelve:
+      - total_descanso: timedelta
+      - descanso_en_curso: bool (True si hay un descanso abierto aún)
+      - inicio_descanso_en_curso: datetime | None
+    """
+    if entrada_momento is None:
+        return timedelta(0), False, None
+
+    if salida_momento is None:
+        limite_superior = datetime.utcnow()
+    else:
+        limite_superior = salida_momento
+
+    registros_descanso = (
+        Registro.query.filter(
+            Registro.usuario_id == usuario_id,
+            Registro.momento >= entrada_momento,
+            Registro.momento <= limite_superior,
+            Registro.accion.in_(["descanso_inicio", "descanso_fin"]),
+        )
+        .order_by(Registro.momento.asc())
+        .all()
+    )
+
+    total = timedelta(0)
+    inicio_actual = None
+    descanso_en_curso = False
+    inicio_en_curso = None
+
+    for r in registros_descanso:
+        if r.accion == "descanso_inicio":
+            if inicio_actual is None:
+                inicio_actual = r.momento
+        elif r.accion == "descanso_fin":
+            if inicio_actual is not None:
+                fin = r.momento
+                if fin < inicio_actual:
+                    fin = inicio_actual
+                total += (fin - inicio_actual)
+                inicio_actual = None
+
+    # Si queda un descanso abierto, lo consideramos "en curso"
+    if inicio_actual is not None:
+        ahora = datetime.utcnow()
+        if ahora > inicio_actual:
+            total += (ahora - inicio_actual)
+        descanso_en_curso = True
+        inicio_en_curso = inicio_actual
+
+    return total, descanso_en_curso, inicio_en_curso
 
 def usuario_tiene_intervalo_abierto(user_id: int) -> bool:
     """
@@ -2608,7 +2683,17 @@ def editar_registro(registro_id):
     entrada_lon = f"{entrada.longitude:.6f}" if entrada and entrada.longitude is not None else ""
     salida_lat = f"{salida.latitude:.6f}" if salida and salida.latitude is not None else ""
     salida_lon = f"{salida.longitude:.6f}" if salida and salida.longitude is not None else ""
+    # Calcular descanso real del intervalo para mostrarlo en el formulario
+    if intervalo.usuario and entrada:
+        descanso_td, descanso_en_curso, _ = calcular_descanso_intervalo_para_usuario(
+            intervalo.usuario.id,
+            entrada.momento,
+            salida.momento if salida else None,
+        )
+    else:
+        descanso_td, descanso_en_curso = timedelta(0), False
 
+    descanso_val = formatear_timedelta(descanso_td) if descanso_td else "00:00"
     return render_template(
         "admin_registro_editar.html",
         usuarios=usuarios,
@@ -2621,6 +2706,7 @@ def editar_registro(registro_id):
         entrada_lon=entrada_lon,
         salida_lat=salida_lat,
         salida_lon=salida_lon,
+        descanso_val=descanso_val,
     )
 
 def generar_csv(intervalos):

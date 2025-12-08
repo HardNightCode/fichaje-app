@@ -72,11 +72,11 @@
           <label class="form-label">Tiempo de descanso (real)</label>
           <input type="text"
                  class="form-control"
-                 value="{% if intervalo.descanso_label %}{{ intervalo.descanso_label }}{% else %}00:00{% endif %}"
-                 disabled>
+                 value="{{ descanso_val }}"
+                 readonly>
           <div class="form-text">
             Se muestra el tiempo de descanso real calculado a partir de los fichajes
-            de inicio y fin de descanso.
+            de inicio y fin de descanso dentro de este intervalo.
           </div>
         </div>
       </div>
@@ -127,7 +127,7 @@
 
 <div class="mt-4">
   <button type="submit" class="btn btn-primary me-2" form="form-principal">Guardar cambios</button>
-  <button type="submit"
+  <button type="submit" 
           class="btn btn-danger me-2"
           name="eliminar"
           value="1"

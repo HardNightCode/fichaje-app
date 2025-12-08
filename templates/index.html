@@ -160,11 +160,13 @@
 
                   <td>
                     {% if it.descanso_en_curso %}
-                      <span class="text-warning">{{ it.descanso_label }}</span>
-                    {% elif it.descanso_total and it.descanso_total.total_seconds() > 0 %}
-                      {{ it.descanso_label }}
+                      <span class="text-warning descanso-en-curso"
+                            data-descanso-inicio="{{ it.descanso_inicio_iso }}">
+                        Descansando ·
+                        <span class="descanso-tiempo">--:--:--</span>
+                      </span>
                     {% else %}
-                      <span class="text-muted">Sin descanso</span>
+                      {{ it.descanso_label or "Sin descanso" }}
                     {% endif %}
                   </td>
 
@@ -262,5 +264,35 @@
       }
     );
   }
+
+  // Actualizar en tiempo real los descansos en curso
+  document.addEventListener('DOMContentLoaded', function () {
+    const elems = document.querySelectorAll('.descanso-en-curso');
+    if (!elems.length) return;
+
+    function actualizarDescansos() {
+      const ahora = new Date();
+      elems.forEach(function (el) {
+        const iso = el.getAttribute('data-descanso-inicio');
+        if (!iso) return;
+        const inicio = new Date(iso);
+        const diffMs = ahora - inicio;
+        if (diffMs < 0) return;
+
+        const totalSeconds = Math.floor(diffMs / 1000);
+        const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+        const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+        const s = String(totalSeconds % 60).padStart(2, '0');
+
+        const spanTiempo = el.querySelector('.descanso-tiempo');
+        if (spanTiempo) {
+          spanTiempo.textContent = `${h}:${m}:${s}`;
+        }
+      });
+    }
+
+    actualizarDescansos();
+    setInterval(actualizarDescansos, 1000);
+  });
 </script>
 {% endblock %}
