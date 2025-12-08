@@ -2199,10 +2199,6 @@ def editar_registro(registro_id):
                 )
                 db.session.add(entrada)
 
-        # Si entrada_momento_str está vacío:
-        #   - Si había entrada, la dejamos tal cual.
-        #   - Si no había, seguimos sin entrada (intervalo "Sin entrada").
-
         # --------- EDICIÓN / CREACIÓN DE SALIDA ----------
         salida_momento_str = request.form.get("salida_momento", "").strip()
         salida_lat_str = request.form.get("salida_latitude", "").strip()
@@ -2256,16 +2252,29 @@ def editar_registro(registro_id):
                 )
                 db.session.add(salida)
 
-        # Si salida_momento_str está vacío:
-        #   - Si había salida, la dejamos tal cual.
-        #   - Si no había, seguimos sin salida (intervalo "Sin salida").
+        # --------- EDICIÓN DE DESCANSO ----------
+        descanso_str = request.form.get("descanso", "").strip()
+
+        if descanso_str:
+            try:
+                horas, minutos = map(int, descanso_str.split(":"))
+                descanso_timedelta = timedelta(hours=horas, minutes=minutos)
+            except ValueError:
+                flash("Formato de descanso no válido. Usa HH:mm.", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            if entrada and salida:
+                # Actualizar en base de datos
+                intervalo_descanso = descanso_timedelta
+                # Puedes agregar lógica de actualización de descanso si es necesario en la base de datos
+                entrada.descanso = intervalo_descanso
+                salida.descanso = intervalo_descanso
 
         db.session.commit()
         flash("Registro actualizado correctamente.", "success")
         return redirect(url_for("admin_registros"))
 
     # ------------------- GET: construir INTERVALO -------------------
-    # Partimos de un registro cualquiera (entrada o salida) para encontrar su intervalo
     reg_base = Registro.query.get_or_404(registro_id)
 
     # Todos los registros de ese usuario
