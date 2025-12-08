@@ -137,7 +137,18 @@
           onclick="return confirm('¿Eliminar por completo este intervalo (entrada y salida)?');">
     Eliminar registro
   </button>
-  <a href="{{ url_for('admin_registros') }}" class="btn btn-secondary">Volver</a>
+  <a href="{{ url_for('admin_registros') }}"
+   class="btn btn-secondary"
+   onclick="
+     // Si venimos de la página de registros, usamos el historial del navegador
+     if (document.referrer && document.referrer.indexOf('{{ url_for('admin_registros') }}') !== -1) {
+         window.history.back();
+         return false;
+     }
+     // Si no, tiramos del enlace normal
+   ">
+  Volver
+</a>
 </div>
 
 {% endblock %}
