@@ -62,7 +62,7 @@
       </div>
     </div>
 
-    {# --- BLOQUE DESCANSO (SOLO LECTURA) --- #}
+    {# --- BLOQUE DESCANSO (EDITABLE) --- #}
     <div class="card mb-3">
       <div class="card-header">
         Descanso
@@ -71,12 +71,13 @@
         <div class="mb-3">
           <label class="form-label">Tiempo de descanso (real)</label>
           <input type="text"
+                 name="descanso_manual"
                  class="form-control"
                  value="{{ descanso_val }}"
-                 readonly>
+                 placeholder="Ejemplo: 01:00">
           <div class="form-text">
-            Se muestra el tiempo de descanso real calculado a partir de los fichajes
-            de inicio y fin de descanso dentro de este intervalo.
+            Indica el descanso en formato <strong>HH:mm</strong>.
+            Si lo dejas como <code>00:00</code>, se usará el descanso calculado automáticamente.
           </div>
         </div>
       </div>
