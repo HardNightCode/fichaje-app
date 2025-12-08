@@ -1,10 +1,9 @@
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, timedelta, time
 from functools import wraps
 from pathlib import Path
 import os
 import logging
 import csv
-import io
 from io import StringIO
 from logging.handlers import RotatingFileHandler
 
@@ -24,12 +23,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from geo_utils import is_within_radius
 from services_fichaje import (
     validar_secuencia_fichaje,
-    calcular_horas_trabajadas,
     formatear_timedelta,
 )
 
-from typing import Optional, List
-from enum import Enum
+from typing import Optional
 from collections import defaultdict
 from types import SimpleNamespace
 
@@ -188,11 +185,6 @@ class UserLocation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=False)
-
-class BreakType(Enum):
-    NONE = "none"
-    FIXED = "fixed"
-    FLEXIBLE = "flexible"
 
 class Schedule(db.Model):
     __tablename__ = "schedule"
@@ -1179,18 +1171,6 @@ def admin_usuario_ficha(user_id):
 # Helpers de ubicaciones (soporta esquema antiguo y nuevo)
 # ======================================================
 
-def formatear_timedelta(td: timedelta) -> str:
-    """
-    Formatea un timedelta a formato 'HH:mm'.
-    """
-    if td is None:
-        return "0:00"
-
-    total_seconds = int(td.total_seconds())
-    hours = total_seconds // 3600
-    minutes = (total_seconds % 3600) // 60
-    return f"{hours:02}:{minutes:02}"
-
 def obtener_ubicaciones_usuario(user):
     """
     Devuelve una lista de Location asociadas al usuario.
@@ -1254,8 +1234,6 @@ def calcular_jornada_teorica(schedule: Schedule, dt: datetime.date) -> timedelta
     Devuelve la duración teórica de trabajo para un día concreto (dt)
     según el horario (global o por días).
     """
-    from datetime import datetime, timedelta, time
-
     # MODO POR DÍAS
     if schedule.use_per_day:
         dow = dt.weekday()  # 0 = lunes ... 6 = domingo
@@ -1337,50 +1315,6 @@ def calcular_duracion_trabajada_intervalo(it) -> Optional[timedelta]:
 
     return real
 
-def calcular_descanso_intervalo(usuario_id: int,
-                                entrada_dt: Optional[datetime],
-                                salida_dt: Optional[datetime]) -> timedelta:
-    """
-    Calcula el tiempo total de descanso (timedelta) entre entrada_dt y salida_dt
-    para un usuario, a partir de los registros con acción
-    'descanso_inicio' / 'descanso_fin'.
-
-    - Si no hay salida, se toma como límite la hora actual (descanso en curso).
-    - Si hay descansos abiertos (inicio sin fin), se computan hasta el límite.
-    """
-    if not entrada_dt:
-        return timedelta(0)
-
-    limite_fin = salida_dt or datetime.utcnow()
-
-    eventos = (
-        Registro.query
-        .filter(Registro.usuario_id == usuario_id)
-        .filter(Registro.momento >= entrada_dt)
-        .filter(Registro.momento <= limite_fin)
-        .filter(Registro.accion.in_(["descanso_inicio", "descanso_fin"]))
-        .order_by(Registro.momento.asc())
-        .all()
-    )
-
-    total = timedelta(0)
-    inicio_actual: Optional[datetime] = None
-
-    for ev in eventos:
-        if ev.accion == "descanso_inicio":
-            # Empezamos/reescribimos un descanso
-            inicio_actual = ev.momento
-        elif ev.accion == "descanso_fin" and inicio_actual:
-            if ev.momento > inicio_actual:
-                total += ev.momento - inicio_actual
-            inicio_actual = None
-
-    # Si queda un descanso abierto, lo contamos hasta el límite
-    if inicio_actual:
-        if limite_fin > inicio_actual:
-            total += limite_fin - inicio_actual
-
-    return total
 
 def calcular_descanso_intervalos(intervalos, registros, ahora=None):
     """
@@ -1455,14 +1389,19 @@ def calcular_descanso_intervalos(intervalos, registros, ahora=None):
                 total += (fin - ultimo_inicio)
                 ultimo_inicio = None
 
-        # Si queda un descanso abierto dentro de la ventana
+        # Si queda un descanso "abierto" dentro de la ventana:
+        # - Siempre lo cerramos en fin_ventana.
+        # - SOLO lo marcamos como "en curso" si NO hay salida en el intervalo.
         en_curso = False
         if ultimo_inicio is not None:
-            en_curso = True
             fin = fin_ventana
             if fin < ultimo_inicio:
                 fin += timedelta(days=1)
             total += (fin - ultimo_inicio)
+
+            # Solo consideramos "descanso en curso" si el intervalo está abierto (sin salida)
+            if it.salida_momento is None:
+                en_curso = True
 
         it.descanso_total = total
         it.descanso_en_curso = en_curso
@@ -1482,7 +1421,7 @@ def calcular_descanso_intervalo_para_usuario(usuario_id, entrada_momento, salida
 
     Devuelve:
       - total_descanso: timedelta
-      - descanso_en_curso: bool (True si hay un descanso abierto aún)
+      - descanso_en_curso: bool (True solo si hay descanso abierto Y el intervalo no tiene salida)
       - inicio_descanso_en_curso: datetime | None
     """
     if entrada_momento is None:
@@ -1521,13 +1460,22 @@ def calcular_descanso_intervalo_para_usuario(usuario_id, entrada_momento, salida
                 total += (fin - inicio_actual)
                 inicio_actual = None
 
-    # Si queda un descanso abierto, lo consideramos "en curso"
+    # Si queda un descanso "abierto":
+    # - Si NO hay salida -> en curso hasta ahora.
+    # - Si hay salida     -> cerrado en la salida, NO en curso.
     if inicio_actual is not None:
-        ahora = datetime.utcnow()
-        if ahora > inicio_actual:
-            total += (ahora - inicio_actual)
-        descanso_en_curso = True
-        inicio_en_curso = inicio_actual
+        if salida_momento is None:
+            # Intervalo abierto: descanso realmente en curso
+            ahora = datetime.utcnow()
+            if ahora > inicio_actual:
+                total += (ahora - inicio_actual)
+            descanso_en_curso = True
+            inicio_en_curso = inicio_actual
+        else:
+            # Intervalo cerrado: contamos hasta la salida, pero NO marcamos en curso
+            fin = limite_superior
+            if fin > inicio_actual:
+                total += (fin - inicio_actual)
 
     return total, descanso_en_curso, inicio_en_curso
 
@@ -1628,76 +1576,6 @@ def determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones, margen_extra_m=1
             return loc
 
     return None
-
-def obtener_etiqueta_ubicacion_para_registro(registro, ubicaciones):
-    """
-    Devuelve la etiqueta de ubicación para un registro:
-
-    - Si las coordenadas caen dentro del radio (con margen) de alguna Location,
-      devuelve el nombre de esa ubicación.
-    - Si no coinciden con ninguna, devuelve 'lat, lon' formateadas.
-    - Si no hay coordenadas, devuelve cadena vacía.
-    """
-    lat = registro.latitude
-    lon = registro.longitude
-
-    if lat is None or lon is None:
-        return ""
-
-    loc = determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones)
-
-    if loc:
-        return loc.name
-
-    # Sin match: devolvemos coordenadas “peladas”
-    return f"{lat:.6f}, {lon:.6f}"
-
-def construir_mapas_extra_y_ubicacion(registros):
-    """
-    Construye:
-      - ubicacion_por_registro: {registro.id: etiqueta_ubicacion}
-      - extra_por_registro: {registro.id: info_extra}, de momento vacío
-    La etiqueta de ubicación será:
-      - nombre de la Location si las coordenadas caen dentro de su radio
-      - "lat, lon" si no coincide con ninguna ubicación
-      - "Sin datos" si no hay coordenadas
-    """
-    # Todas las ubicaciones definidas, menos "Flexible"
-    ubicaciones_definidas = Location.query.filter(Location.name != "Flexible").all()
-
-    ubicacion_por_registro = {}
-    extra_por_registro = {}  # por ahora no calculamos horas extra/defecto aquí
-
-    for r in registros:
-        etiqueta = "Sin datos"
-
-        if r.latitude is not None and r.longitude is not None:
-            # ¿Cae dentro de alguna ubicación configurada (con su radio)?
-            loc_match = determinar_ubicacion_por_coordenadas(
-                r.latitude,
-                r.longitude,
-                ubicaciones_definidas,
-            )
-            if loc_match:
-                etiqueta = loc_match.name
-            else:
-                # No coincide con ninguna -> mostramos coordenadas
-                try:
-                    etiqueta = f"{r.latitude:.6f}, {r.longitude:.6f}"
-                except Exception:
-                    etiqueta = f"{r.latitude}, {r.longitude}"
-
-        ubicacion_por_registro[r.id] = etiqueta
-
-        # Cuando tengamos horarios implementados, aquí rellenaremos extra_por_registro[r.id]
-        # con algo del estilo:
-        # extra_por_registro[r.id] = {
-        #     "extra": "00:30",
-        #     "defecto": "00:10",
-        #     "schedule_name": "Turno mañana"
-        # }
-
-    return ubicacion_por_registro, extra_por_registro
 
 def construir_intervalo(entrada, salida, ubicaciones_definidas):
     """
@@ -1941,31 +1819,6 @@ def calcular_horas_trabajadas(registros):
     from services_fichaje import calcular_horas_trabajadas as _calc
     return _calc(registros)
 
-# Implementar funciones adicionales para manejar descansos y obtener horarios
-def obtener_descanso(usuario, entrada, salida):
-    """
-    Devuelve el tiempo de descanso entre entrada y salida para un usuario
-    considerando el tipo de descanso.
-    """
-    schedule = obtener_horario_aplicable(usuario, entrada.date())  # Obtener horario de usuario para ese día
-    if not schedule or schedule.break_type == "none":
-        return timedelta(0)
-
-    if schedule.break_type == "fixed":
-        # Implementar lógica para descanso fijo
-        return calcular_descanso_fijo(schedule, entrada, salida)
-    
-    elif schedule.break_type == "flexible":
-        # Implementar lógica para descanso flexible
-        return timedelta(minutes=schedule.break_minutes)
-
-def obtener_descanso_estipulado(usuario):
-    """
-    Devuelve el descanso estipulado por el horario para el usuario.
-    """
-    schedule = obtener_horario_aplicable(usuario, datetime.today().date())
-    return timedelta(minutes=schedule.break_minutes) if schedule else timedelta(0)
-
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():
@@ -2067,13 +1920,31 @@ def fichar():
         margin = settings.margin_minutes or 0
         ahora = datetime.now()  # Hora local del servidor
         hoy = ahora.date()
+        dow = hoy.weekday()  # 0 = lunes ... 6 = domingo
 
         autorizado_por_horario = False
 
         for sched in user_schedules:
-            # Construimos el intervalo [inicio, fin] para hoy
-            inicio_dt = datetime.combine(hoy, sched.start_time)
-            fin_dt = datetime.combine(hoy, sched.end_time)
+            # --- Elegir tramo horario según use_per_day ---
+            if sched.use_per_day:
+                # Buscar el día concreto
+                dia = next((d for d in sched.days if d.day_of_week == dow), None)
+                if not dia:
+                    # En este horario, hoy no es laborable
+                    continue
+
+                inicio_t = dia.start_time
+                fin_t = dia.end_time
+            else:
+                inicio_t = sched.start_time
+                fin_t = sched.end_time
+
+            # Si por lo que sea faltan horas, nos saltamos este horario
+            if not inicio_t or not fin_t:
+                continue
+
+            inicio_dt = datetime.combine(hoy, inicio_t)
+            fin_dt = datetime.combine(hoy, fin_t)
 
             # Si el horario cruza medianoche (ej. 22:00–06:00)
             if fin_dt <= inicio_dt:
@@ -2094,64 +1965,6 @@ def fichar():
                 "error",
             )
             return redirect(url_for("index"))
-
-    # Coordenadas
-    lat_str = request.form.get("lat")
-    lon_str = request.form.get("lon")
-
-    if not lat_str or not lon_str:
-        flash(
-            "No se recibió la ubicación del dispositivo. Comprueba los permisos de geolocalización.",
-            "error",
-        )
-        return redirect(url_for("index"))
-
-    try:
-        lat_user = float(lat_str)
-        lon_user = float(lon_str)
-    except ValueError:
-        flash("Coordenadas de ubicación inválidas.", "error")
-        return redirect(url_for("index"))
-
-    # Si NO está en modo Flexible, comprobamos radios
-    if not flexible_activo:
-        autorizado = False
-
-        for loc in ubicaciones_usuario:
-            # Por si coexistieran Flexible + fijas, ignoramos Flexible en el cálculo de radios
-            if loc.name.lower() == "flexible":
-                continue
-
-            if is_within_radius(
-                lat_user,
-                lon_user,
-                loc.latitude,
-                loc.longitude,
-                loc.radius_meters,
-            ):
-                autorizado = True
-                break
-
-        if not autorizado:
-            flash(
-                "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
-                "error",
-            )
-            return redirect(url_for("index"))
-    # Si flexible_activo == True -> no hay restricción de radio; solo guardamos las coords.
-
-    registro = Registro(
-        usuario_id=current_user.id,
-        accion=accion,
-        momento=datetime.utcnow(),
-        latitude=lat_user,
-        longitude=lon_user,
-    )
-    db.session.add(registro)
-    db.session.commit()
-
-    flash("Fichaje registrado correctamente", "success")
-    return redirect(url_for("index"))
 
 # ======================================================
 # Gestión de usuarios
@@ -2184,76 +1997,8 @@ def register():
     return render_template("register.html")
 
 # ======================================================
-# Helper para construir la consulta de registros
-# ======================================================
-
-def construir_query_registros(usuario_seleccionado: str,
-                              fecha_desde: str,
-                              fecha_hasta: str,
-                              tipo_periodo: str):
-    """
-    Construye y devuelve un objeto Query de SQLAlchemy
-    en función de los filtros recibidos.
-    """
-    query = Registro.query.join(User).order_by(Registro.momento.desc())
-
-    # Filtro por usuario
-    if usuario_seleccionado != "all":
-        try:
-            uid = int(usuario_seleccionado)
-            query = query.filter(Registro.usuario_id == uid)
-        except ValueError:
-            flash("Usuario no válido.", "error")
-
-    # Filtro por tipo de periodo
-    if tipo_periodo == "rango":
-        if fecha_desde:
-            try:
-                dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
-                query = query.filter(Registro.momento >= dt_desde)
-            except ValueError:
-                flash("Fecha 'desde' no válida.", "error")
-
-        if fecha_hasta:
-            try:
-                dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
-                dt_hasta = dt_hasta.replace(hour=23, minute=59, second=59)
-                query = query.filter(Registro.momento <= dt_hasta)
-            except ValueError:
-                flash("Fecha 'hasta' no válida.", "error")
-
-    elif tipo_periodo == "semanal":
-        today = datetime.today()
-        # Lunes de la semana actual
-        start_of_week = today - timedelta(days=today.weekday())
-        start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_of_week = start_of_week + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        query = query.filter(Registro.momento >= start_of_week,
-                             Registro.momento <= end_of_week)
-
-    elif tipo_periodo == "mensual":
-        today = datetime.today()
-        start_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        if today.month == 12:
-            next_month = start_of_month.replace(year=today.year + 1, month=1)
-        else:
-            next_month = start_of_month.replace(month=today.month + 1)
-        end_of_month = next_month - timedelta(seconds=1)
-        query = query.filter(Registro.momento >= start_of_month,
-                             Registro.momento <= end_of_month)
-
-    elif tipo_periodo == "historico":
-        # No se aplica filtro de fechas, se devuelven todos los registros
-        pass
-
-    return query
-
-
-# ======================================================
 # Administración de registros (filtros, CSV y PDF)
 # ======================================================
-
-from flask import Response  # Asegúrate de tener esto al principio del archivo
 
 @app.route("/admin/registros", methods=["GET", "POST"])
 @admin_required
@@ -2762,7 +2507,6 @@ def generar_csv(intervalos):
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
-
 def generar_pdf(intervalos, tipo_periodo: str):
     """
     Genera un PDF usando la plantilla informe_pdf.html,
@@ -2820,14 +2564,12 @@ def login():
 
     return render_template("login.html")
 
-
 @app.route("/logout")
 @login_required
 def logout():
     logout_user()
     flash("Has cerrado sesión", "success")
     return redirect(url_for("login"))
-
 
 # ======================================================
 # Endpoint de salud para checks HTTP desde la consola
@@ -2841,13 +2583,11 @@ def health():
     """
     return "OK", 200
 
-
 # ======================================================
 # Inicialización al importar (gunicorn, etc.)
 # ======================================================
 
 init_app()
-
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
