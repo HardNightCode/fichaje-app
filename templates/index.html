@@ -81,14 +81,18 @@
               Fichar SALIDA
             </button>
 
-            {# Botón DESCANSO (solo si el horario tiene descanso) #}
+            {# Botón DESCANSO (inicio / fin), solo si el horario tiene descanso configurado #}
             {% if tiene_descanso %}
               <button type="button"
-                      id="btn-descanso"
-                      class="btn btn-warning btn-lg"
-                      onclick="toggleDescanso()"
-                      {% if no_puede_descansar %}disabled{% endif %}>
-                Iniciar descanso
+                      class="btn btn-warning btn-lg
+                             {% if not tiene_ubicaciones or bloquear_descanso %}btn-soft-disabled{% endif %}"
+                      onclick="fichar('{{ 'descanso_fin' if descanso_en_curso else 'descanso_inicio' }}')"
+                      {% if not tiene_ubicaciones or bloquear_descanso %}disabled{% endif %}>
+                {% if descanso_en_curso %}
+                  Terminar DESCANSO
+                {% else %}
+                  Iniciar DESCANSO
+                {% endif %}
               </button>
             {% endif %}
           </div>
@@ -215,8 +219,6 @@
 
 {% block scripts %}
 <script>
-  let descansoActivo = false;
-
   function fichar(accion) {
     const form = document.getElementById('form-fichar');
     const accionInput = document.getElementById('accion');
@@ -246,15 +248,6 @@
         maximumAge: 0
       }
     );
-  }
-
-  function toggleDescanso() {
-    const btn = document.getElementById('btn-descanso');
-    if (!btn) return;
-
-    descansoActivo = !descansoActivo;
-    btn.textContent = descansoActivo ? 'Terminar descanso' : 'Iniciar descanso';
-    // De momento es solo visual. La lógica de envío al backend la conectamos después.
   }
 </script>
 {% endblock %}

@@ -462,8 +462,56 @@ def index():
             if schedule.break_type in ("fixed", "flexible"):
                 tiene_descanso = True
 
-    # Por ahora no bloqueamos el botón de descanso por lógica extra
-    no_puede_descansar = False
+    # --- ¿Tiene el usuario un intervalo abierto (entrada sin salida)? ---
+    ultima_entrada = (
+        Registro.query
+        .filter_by(usuario_id=current_user.id, accion="entrada")
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+
+    intervalo_abierto = False
+    if ultima_entrada:
+        salida_posterior = (
+            Registro.query
+            .filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "salida",
+                Registro.momento > ultima_entrada.momento,
+            )
+            .first()
+        )
+        intervalo_abierto = (salida_posterior is None)
+
+    # --- ¿Hay un descanso en curso? (inicio sin fin posterior) ---
+    ultimo_inicio_descanso = (
+        Registro.query
+        .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+
+    descanso_en_curso = False
+    if ultimo_inicio_descanso:
+        fin_posterior = (
+            Registro.query
+            .filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "descanso_fin",
+                Registro.momento > ultimo_inicio_descanso.momento,
+            )
+            .first()
+        )
+        if not fin_posterior:
+            descanso_en_curso = True
+
+    # --- Lógica de bloqueo del botón de descanso ---
+    # Por diseño: solo se permite descanso si:
+    #   - el horario tiene descanso configurado
+    #   - el usuario ha fichado ENTRADA y no ha fichado SALIDA (intervalo abierto)
+    bloquear_descanso = True
+    if tiene_descanso and intervalo_abierto:
+        bloquear_descanso = False
 
     return render_template(
         "index.html",
@@ -475,7 +523,8 @@ def index():
         bloquear_entrada=bloquear_entrada,
         bloquear_salida=bloquear_salida,
         tiene_descanso=tiene_descanso,
-        no_puede_descansar=no_puede_descansar,
+        bloquear_descanso=bloquear_descanso,
+        descanso_en_curso=descanso_en_curso,
     )
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
@@ -1256,6 +1305,73 @@ def calcular_duracion_trabajada_intervalo(it) -> Optional[timedelta]:
 
     return real
 
+def calcular_descanso_intervalo(usuario_id: int,
+                                entrada_dt: Optional[datetime],
+                                salida_dt: Optional[datetime]) -> timedelta:
+    """
+    Calcula el tiempo total de descanso (timedelta) entre entrada_dt y salida_dt
+    para un usuario, a partir de los registros con acción
+    'descanso_inicio' / 'descanso_fin'.
+
+    - Si no hay salida, se toma como límite la hora actual (descanso en curso).
+    - Si hay descansos abiertos (inicio sin fin), se computan hasta el límite.
+    """
+    if not entrada_dt:
+        return timedelta(0)
+
+    limite_fin = salida_dt or datetime.utcnow()
+
+    eventos = (
+        Registro.query
+        .filter(Registro.usuario_id == usuario_id)
+        .filter(Registro.momento >= entrada_dt)
+        .filter(Registro.momento <= limite_fin)
+        .filter(Registro.accion.in_(["descanso_inicio", "descanso_fin"]))
+        .order_by(Registro.momento.asc())
+        .all()
+    )
+
+    total = timedelta(0)
+    inicio_actual: Optional[datetime] = None
+
+    for ev in eventos:
+        if ev.accion == "descanso_inicio":
+            # Empezamos/reescribimos un descanso
+            inicio_actual = ev.momento
+        elif ev.accion == "descanso_fin" and inicio_actual:
+            if ev.momento > inicio_actual:
+                total += ev.momento - inicio_actual
+            inicio_actual = None
+
+    # Si queda un descanso abierto, lo contamos hasta el límite
+    if inicio_actual:
+        if limite_fin > inicio_actual:
+            total += limite_fin - inicio_actual
+
+    return total
+
+def usuario_tiene_intervalo_abierto(user_id: int) -> bool:
+    """
+    Devuelve True si el usuario tiene una ENTRADA sin SALIDA posterior.
+    Es decir, si está "en jornada" y aún no ha fichado la salida.
+    """
+    ultima_entrada = (
+        Registro.query
+        .filter_by(usuario_id=user_id, accion="entrada")
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+    if not ultima_entrada:
+        return False
+
+    salida_posterior = (
+        Registro.query
+        .filter(Registro.usuario_id == user_id,
+                Registro.accion == "salida",
+                Registro.momento > ultima_entrada.momento)
+        .first()
+    )
+    return salida_posterior is None
 
 def calcular_extra_y_defecto_intervalo(it):
     """
@@ -1685,20 +1801,74 @@ def fichar():
     flexible_activo = usuario_tiene_flexible(current_user)
 
     accion = request.form.get("accion")
-    if accion not in ("entrada", "salida"):
+    if accion not in ("entrada", "salida", "descanso_inicio", "descanso_fin"):
         flash("Acción no válida", "error")
         return redirect(url_for("index"))
 
-    # Validar secuencia entrada/salida
     ultimo_registro = (
         Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.desc())
         .first()
     )
-    es_valido, msg_error = validar_secuencia_fichaje(accion, ultimo_registro)
-    if not es_valido:
-        flash(msg_error, "error")
-        return redirect(url_for("index"))
+
+    if accion in ("entrada", "salida"):
+        # Validación estándar de entrada/salida
+        es_valido, msg_error = validar_secuencia_fichaje(accion, ultimo_registro)
+        if not es_valido:
+            flash(msg_error, "error")
+            return redirect(url_for("index"))
+    else:
+        # Reglas para descanso
+        if not usuario_tiene_intervalo_abierto(current_user.id):
+            flash("No puedes registrar un descanso si no has fichado la entrada.", "error")
+            return redirect(url_for("index"))
+
+        if accion == "descanso_inicio":
+            # No permitir iniciar descanso si ya hay uno en curso
+            ultimo_inicio = (
+                Registro.query
+                .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+                .order_by(Registro.momento.desc())
+                .first()
+            )
+            if ultimo_inicio:
+                fin_posterior = (
+                    Registro.query
+                    .filter(
+                        Registro.usuario_id == current_user.id,
+                        Registro.accion == "descanso_fin",
+                        Registro.momento > ultimo_inicio.momento,
+                    )
+                    .first()
+                )
+                if not fin_posterior:
+                    flash("Ya tienes un descanso en curso.", "error")
+                    return redirect(url_for("index"))
+
+        elif accion == "descanso_fin":
+            # No permitir terminar descanso si no hay uno en curso
+            ultimo_inicio = (
+                Registro.query
+                .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+                .order_by(Registro.momento.desc())
+                .first()
+            )
+            if not ultimo_inicio:
+                flash("No hay ningún descanso en curso que terminar.", "error")
+                return redirect(url_for("index"))
+
+            fin_posterior = (
+                Registro.query
+                .filter(
+                    Registro.usuario_id == current_user.id,
+                    Registro.accion == "descanso_fin",
+                    Registro.momento > ultimo_inicio.momento,
+                )
+                .first()
+            )
+            if fin_posterior:
+                flash("No hay ningún descanso en curso que terminar.", "error")
+                return redirect(url_for("index"))
 
     # === Comprobación de horario (si está configurado y se fuerza) ===
     settings = getattr(current_user, "schedule_settings", None)
@@ -2252,29 +2422,16 @@ def editar_registro(registro_id):
                 )
                 db.session.add(salida)
 
-        # --------- EDICIÓN DE DESCANSO ----------
-        descanso_str = request.form.get("descanso", "").strip()
-
-        if descanso_str:
-            try:
-                horas, minutos = map(int, descanso_str.split(":"))
-                descanso_timedelta = timedelta(hours=horas, minutes=minutos)
-            except ValueError:
-                flash("Formato de descanso no válido. Usa HH:mm.", "error")
-                return redirect(url_for("editar_registro", registro_id=registro_id))
-
-            if entrada and salida:
-                # Actualizar en base de datos
-                intervalo_descanso = descanso_timedelta
-                # Puedes agregar lógica de actualización de descanso si es necesario en la base de datos
-                entrada.descanso = intervalo_descanso
-                salida.descanso = intervalo_descanso
+        # (Opcional) aquí podríamos leer un campo "descanso" del formulario
+        # para futuras extensiones, pero de momento el descanso se calcula
+        # a partir de los registros de descanso.
 
         db.session.commit()
         flash("Registro actualizado correctamente.", "success")
         return redirect(url_for("admin_registros"))
 
     # ------------------- GET: construir INTERVALO -------------------
+    # Partimos de un registro cualquiera (entrada o salida) para encontrar su intervalo
     reg_base = Registro.query.get_or_404(registro_id)
 
     # Todos los registros de ese usuario
@@ -2323,6 +2480,18 @@ def editar_registro(registro_id):
     salida_lat = f"{salida.latitude:.6f}" if salida and salida.latitude is not None else ""
     salida_lon = f"{salida.longitude:.6f}" if salida and salida.longitude is not None else ""
 
+    # ---- Cálculo del descanso total del intervalo ----
+    if entrada and entrada.momento:
+        descanso_td = calcular_descanso_intervalo(
+            intervalo.usuario.id,
+            entrada.momento,
+            salida.momento if salida and salida.momento else None,
+        )
+    else:
+        descanso_td = timedelta(0)
+
+    descanso_val = formatear_timedelta(descanso_td) if descanso_td.total_seconds() > 0 else "00:00"
+
     return render_template(
         "admin_registro_editar.html",
         usuarios=usuarios,
@@ -2335,6 +2504,7 @@ def editar_registro(registro_id):
         entrada_lon=entrada_lon,
         salida_lat=salida_lat,
         salida_lon=salida_lon,
+        descanso_val=descanso_val,
     )
 
 def generar_csv(intervalos):

@@ -98,12 +98,27 @@
       </div>
     </div>
 
-    <!-- Nueva sección para descanso -->
-    <div class="mb-3">
-      <label class="form-label">Tiempo de descanso</label>
-      <input type="text" name="descanso" class="form-control" value="{{ entrada.descanso or '' }}" placeholder="Ejemplo: 01:00">
-      <div class="form-text">
-        Indica el descanso en formato HH:mm.
+    <!-- Bloque de descanso -->
+    <div class="card mt-3">
+      <div class="card-header">
+        Descanso
+      </div>
+      <div class="card-body">
+        <p class="mb-2">
+          <strong>Tiempo de descanso detectado:</strong>
+          {{ descanso_val }}
+        </p>
+        <div class="mb-3">
+          <label class="form-label">Tiempo de descanso (HH:mm)</label>
+          <input type="text"
+                 name="descanso"
+                 class="form-control"
+                 value="{{ descanso_val }}"
+                 placeholder="01:00">
+          <div class="form-text">
+            Indica el descanso en formato HH:mm.
+          </div>
+        </div>
       </div>
     </div>
 
