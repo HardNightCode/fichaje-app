@@ -426,24 +426,43 @@ def index():
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
-    # --- Lógica para saber qué botón toca ahora (entrada/salida) ---
-    ultimo_registro = (
-        Registro.query.filter_by(usuario_id=current_user.id)
+    # --- Lógica basada SOLO en entrada/salida (ignoramos descansos) ---
+    ultima_entrada = (
+        Registro.query
+        .filter_by(usuario_id=current_user.id, accion="entrada")
         .order_by(Registro.momento.desc())
         .first()
     )
 
-    if ultimo_registro is None:
-        # No hay registros: se permite ENTRADA y se bloquea SALIDA
+    intervalo_abierto = False
+
+    if ultima_entrada:
+        # ¿Existe una salida posterior a la última entrada?
+        salida_posterior = (
+            Registro.query
+            .filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "salida",
+                Registro.momento > ultima_entrada.momento,
+            )
+            .order_by(Registro.momento.asc())
+            .first()
+        )
+        if salida_posterior is None:
+            intervalo_abierto = True
+
+    # --- Decidir bloqueo de ENTRADA/SALIDA ---
+    if not ultima_entrada:
+        # Nunca ha fichado: solo puede ENTRADA
         bloquear_entrada = False
         bloquear_salida = True
     else:
-        if ultimo_registro.accion == "entrada":
-            # Falta la salida → solo se debe poder fichar salida
+        if intervalo_abierto:
+            # Tiene una entrada sin salida: solo puede SALIDA
             bloquear_entrada = True
             bloquear_salida = False
         else:
-            # Última acción fue salida → toca entrada
+            # Su última entrada ya tiene salida -> nueva jornada: solo ENTRADA
             bloquear_entrada = False
             bloquear_salida = True
 
@@ -461,27 +480,6 @@ def index():
         else:
             if schedule.break_type in ("fixed", "flexible"):
                 tiene_descanso = True
-
-    # --- ¿Tiene el usuario un intervalo abierto (entrada sin salida)? ---
-    ultima_entrada = (
-        Registro.query
-        .filter_by(usuario_id=current_user.id, accion="entrada")
-        .order_by(Registro.momento.desc())
-        .first()
-    )
-
-    intervalo_abierto = False
-    if ultima_entrada:
-        salida_posterior = (
-            Registro.query
-            .filter(
-                Registro.usuario_id == current_user.id,
-                Registro.accion == "salida",
-                Registro.momento > ultima_entrada.momento,
-            )
-            .first()
-        )
-        intervalo_abierto = (salida_posterior is None)
 
     # --- ¿Hay un descanso en curso? (inicio sin fin posterior) ---
     ultimo_inicio_descanso = (
@@ -506,9 +504,9 @@ def index():
             descanso_en_curso = True
 
     # --- Lógica de bloqueo del botón de descanso ---
-    # Por diseño: solo se permite descanso si:
+    # Solo se permite descanso si:
     #   - el horario tiene descanso configurado
-    #   - el usuario ha fichado ENTRADA y no ha fichado SALIDA (intervalo abierto)
+    #   - hay jornada abierta (entrada sin salida)
     bloquear_descanso = True
     if tiene_descanso and intervalo_abierto:
         bloquear_descanso = False
