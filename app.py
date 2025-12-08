@@ -2457,6 +2457,9 @@ def editar_registro(registro_id):
                     longitude=entrada_lon,
                 )
                 db.session.add(entrada)
+        # Si entrada_momento_str está vacío:
+        #   - Si había entrada, la dejamos tal cual.
+        #   - Si no había, seguimos sin entrada.
 
         # --------- EDICIÓN / CREACIÓN DE SALIDA ----------
         salida_momento_str = request.form.get("salida_momento", "").strip()
@@ -2510,10 +2513,24 @@ def editar_registro(registro_id):
                     longitude=salida_lon,
                 )
                 db.session.add(salida)
+        # Si salida_momento_str está vacío:
+        #   - Si había salida, la dejamos tal cual.
+        #   - Si no había, seguimos sin salida.
 
-        # (Opcional) aquí podríamos leer un campo "descanso" del formulario
-        # para futuras extensiones, pero de momento el descanso se calcula
-        # a partir de los registros de descanso.
+        # --------- VALIDACIÓN INTERVALO COHERENTE ---------
+        # Volvemos a cargar entrada y salida (por si se han creado nuevas)
+        if entrada_id_str and not entrada:
+            entrada = Registro.query.get(int(entrada_id_str))
+        if salida_id_str and not salida:
+            salida = Registro.query.get(int(salida_id_str))
+
+        entrada_m = entrada.momento if entrada else None
+        salida_m = salida.momento if salida else None
+
+        if entrada_m and salida_m and entrada_m > salida_m:
+            db.session.rollback()
+            flash("La fecha/hora de entrada no puede ser posterior a la de salida.", "error")
+            return redirect(url_for("editar_registro", registro_id=registro_id))
 
         db.session.commit()
         flash("Registro actualizado correctamente.", "success")
@@ -2552,6 +2569,9 @@ def editar_registro(registro_id):
             usuario=reg_base.usuario,
             entrada=entrada,
             salida=salida,
+            descanso_en_curso=False,
+            descanso_total=None,
+            descanso_label=None,
         )
 
     entrada = intervalo.entrada
@@ -2569,18 +2589,6 @@ def editar_registro(registro_id):
     salida_lat = f"{salida.latitude:.6f}" if salida and salida.latitude is not None else ""
     salida_lon = f"{salida.longitude:.6f}" if salida and salida.longitude is not None else ""
 
-    # ---- Cálculo del descanso total del intervalo ----
-    if entrada and entrada.momento:
-        descanso_td = calcular_descanso_intervalo(
-            intervalo.usuario.id,
-            entrada.momento,
-            salida.momento if salida and salida.momento else None,
-        )
-    else:
-        descanso_td = timedelta(0)
-
-    descanso_val = formatear_timedelta(descanso_td) if descanso_td.total_seconds() > 0 else "00:00"
-
     return render_template(
         "admin_registro_editar.html",
         usuarios=usuarios,
@@ -2593,7 +2601,6 @@ def editar_registro(registro_id):
         entrada_lon=entrada_lon,
         salida_lat=salida_lat,
         salida_lon=salida_lon,
-        descanso_val=descanso_val,
     )
 
 def generar_csv(intervalos):

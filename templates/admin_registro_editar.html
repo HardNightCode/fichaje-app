@@ -3,7 +3,7 @@
 {% block title %}Editar registro - Administración{% endblock %}
 
 {% block content %}
-<h1 class="mb-4">Editar registro (intervalo entrada / salida)</h1>
+<h1 class="mb-4">Editar registro (intervalo entrada / descanso / salida)</h1>
 
 <form id="form-principal" method="post" class="row g-4">
 
@@ -23,6 +23,8 @@
   </div>
 
   <div class="col-12 col-lg-6">
+
+    {# --- BLOQUE ENTRADA --- #}
     <div class="card mb-3">
       <div class="card-header">
         Entrada
@@ -60,6 +62,27 @@
       </div>
     </div>
 
+    {# --- BLOQUE DESCANSO (SOLO LECTURA) --- #}
+    <div class="card mb-3">
+      <div class="card-header">
+        Descanso
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">Tiempo de descanso (real)</label>
+          <input type="text"
+                 class="form-control"
+                 value="{% if intervalo.descanso_label %}{{ intervalo.descanso_label }}{% else %}00:00{% endif %}"
+                 disabled>
+          <div class="form-text">
+            Se muestra el tiempo de descanso real calculado a partir de los fichajes
+            de inicio y fin de descanso.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# --- BLOQUE SALIDA --- #}
     <div class="card">
       <div class="card-header">
         Salida
@@ -93,30 +116,6 @@
                    name="salida_longitude"
                    class="form-control"
                    value="{{ salida_lon }}">
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Bloque de descanso -->
-    <div class="card mt-3">
-      <div class="card-header">
-        Descanso
-      </div>
-      <div class="card-body">
-        <p class="mb-2">
-          <strong>Tiempo de descanso detectado:</strong>
-          {{ descanso_val }}
-        </p>
-        <div class="mb-3">
-          <label class="form-label">Tiempo de descanso (HH:mm)</label>
-          <input type="text"
-                 name="descanso"
-                 class="form-control"
-                 value="{{ descanso_val }}"
-                 placeholder="01:00">
-          <div class="form-text">
-            Indica el descanso en formato HH:mm.
           </div>
         </div>
       </div>
