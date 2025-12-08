@@ -430,10 +430,17 @@ def index():
         else:
             it.descanso_label = "Sin descanso"
 
-    # Resumen: total de horas del usuario actual
-    horas_por_usuario = calcular_horas_trabajadas(registros_usuario)
-    total_td = horas_por_usuario.get(current_user.username, timedelta())
-    resumen_horas = formatear_timedelta(total_td)
+    # Resumen: total de horas del usuario actual (mismo criterio que en los intervalos)
+    total_trabajo = timedelta(0)
+    for it in intervalos_usuario:
+        extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+        it.horas_extra = extra_td
+        it.horas_defecto = defecto_td
+        trabajo_real = getattr(it, "trabajo_real", timedelta(0))
+        if trabajo_real.total_seconds() > 0:
+            total_trabajo += trabajo_real
+
+    resumen_horas = formatear_timedelta(total_trabajo)
 
     # Ubicaciones múltiples del usuario (para el formulario y mensajes)
     ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
@@ -1506,98 +1513,88 @@ def calcular_extra_y_defecto_intervalo(it):
     """
     Calcula (horas_extra, horas_defecto) como timedeltas para un intervalo.
 
-    Reglas:
-      - Se parte del intervalo real: salida - entrada (corrigiendo medianoche).
-      - Se descuenta un descanso "efectivo":
-          descanso_efectivo = max(descanso_real, descanso_teorico)
-        donde:
-          * descanso_real   = tiempo realmente fichado como descanso
-          * descanso_teorico= el configurado en el horario (si lo hay)
-      - Si el usuario no tiene horario, o el día no es laborable:
-          * todo el trabajo neto (sin descansos reales) se considera horas extra.
+    Además deja calculado:
+      - it.trabajo_real -> tiempo realmente trabajado en el intervalo
+                           según horario + descansos (real/teórico).
 
-      Ejemplos:
-        - Descanso real = descanso teórico  -> no hay impacto en extra/defecto.
-        - Descanso real < descanso teórico  -> se descuenta el teórico (no gana extra por descansar menos).
-        - Descanso real > descanso teórico  -> ese exceso genera horas en defecto.
+    Reglas:
+      - Duración total del intervalo: salida - entrada (corrigiendo medianoche).
+      - Se descuenta un descanso "efectivo":
+            descanso_efectivo = max(descanso_real, descanso_teorico)
+        donde:
+          * descanso_real    = tiempo fichado como descanso
+          * descanso_teorico = el configurado en el horario (si lo hay)
+      - Sin horario o día no laborable:
+          * todo el trabajo neto (dur_real - descanso_real) se considera extra.
     """
-    # Si no tenemos usuario asociado, no calculamos nada
+    # Valor por defecto, por si algo va mal
+    it.trabajo_real = timedelta(0)
+
     if not it.usuario:
         return timedelta(0), timedelta(0)
 
-    # Duración total del intervalo (entrada -> salida)
     dur_real = calcular_duracion_trabajada_intervalo(it)
     if dur_real is None:
-        # Sin entrada o sin salida -> no se calcula aún
         return timedelta(0), timedelta(0)
 
     user = it.usuario
     fecha = it.entrada_momento.date()
 
-    # Descanso REAL dentro del intervalo (en base a registros descanso_inicio/descanso_fin)
+    # Descanso REAL fichado en ese intervalo
     descanso_real_td, _, _ = calcular_descanso_intervalo_para_usuario(
         user.id,
         it.entrada_momento,
         it.salida_momento,
     )
 
-    # Horario aplicable (si existe)
+    # Horario aplicable (si lo hay)
     schedule = obtener_horario_aplicable(user, fecha)
 
-    # =========================
-    # CASO 1: Sin horario asignado
-    # =========================
+    # ===== CASO 1: Sin horario asignado =====
     if schedule is None:
-        # Todo el trabajo neto se considera extra,
-        # pero el descanso REAL no cuenta como trabajo.
         trabajo_neto = dur_real - descanso_real_td
         if trabajo_neto.total_seconds() < 0:
             trabajo_neto = timedelta(0)
+        it.trabajo_real = trabajo_neto
         return trabajo_neto, timedelta(0)
 
-    # Jornada teórica (ya descuenta el descanso configurado)
+    # Jornada teórica (ya descuenta descanso teórico interno)
     dur_teorica = calcular_jornada_teorica(schedule, fecha)
 
-    # =========================
-    # CASO 2: Día no laborable (jornada teórica = 0)
-    # =========================
+    # ===== CASO 2: Día no laborable (jornada_teorica = 0) =====
     if dur_teorica.total_seconds() == 0:
-        # Día no laborable: todo el trabajo neto es extra.
         trabajo_neto = dur_real - descanso_real_td
         if trabajo_neto.total_seconds() < 0:
             trabajo_neto = timedelta(0)
+        it.trabajo_real = trabajo_neto
         return trabajo_neto, timedelta(0)
 
-    # =========================
-    # CASO 3: Día laborable con horario
-    # =========================
+    # ===== CASO 3: Día laborable con horario =====
 
-    # Longitud "bruta" de la jornada teórica (sin descontar descanso teórico),
-    # a partir del horario.
+    # Longitud bruta de la jornada según horario (sin restar descanso teórico)
     if schedule.use_per_day:
-        dow = fecha.weekday()  # 0 = lunes ... 6 = domingo
+        dow = fecha.weekday()  # 0=lunes ... 6=domingo
         dia = next((d for d in schedule.days if d.day_of_week == dow), None)
         if dia is None:
-            # Por coherencia con arriba: si no hay config para ese día, tratamos como día no laborable
             trabajo_neto = dur_real - descanso_real_td
             if trabajo_neto.total_seconds() < 0:
                 trabajo_neto = timedelta(0)
+            it.trabajo_real = trabajo_neto
             return trabajo_neto, timedelta(0)
 
         inicio_j = datetime.combine(fecha, dia.start_time)
         fin_j = datetime.combine(fecha, dia.end_time)
     else:
         if not schedule.start_time or not schedule.end_time:
-            # Horario mal definido: volvemos al criterio de "sin horario"
             trabajo_neto = dur_real - descanso_real_td
             if trabajo_neto.total_seconds() < 0:
                 trabajo_neto = timedelta(0)
+            it.trabajo_real = trabajo_neto
             return trabajo_neto, timedelta(0)
 
         inicio_j = datetime.combine(fecha, schedule.start_time)
         fin_j = datetime.combine(fecha, schedule.end_time)
 
-    # Ajustar por si el horario cruza medianoche
     if fin_j <= inicio_j:
         fin_j += timedelta(days=1)
 
@@ -1611,22 +1608,21 @@ def calcular_extra_y_defecto_intervalo(it):
     # Descanso efectivo: el mayor entre real y teórico
     descanso_efectivo = max(descanso_real_td, descanso_teorico_td)
 
-    # Trabajo realmente computable para extra/defecto
+    # Trabajo realmente computable
     trabajo_real = dur_real - descanso_efectivo
     if trabajo_real.total_seconds() < 0:
         trabajo_real = timedelta(0)
+
+    it.trabajo_real = trabajo_real
 
     # Diferencia respecto a la jornada teórica
     diff = trabajo_real - dur_teorica
 
     if diff.total_seconds() > 0:
-        # Más de lo teórico -> horas extra
         return diff, timedelta(0)
     elif diff.total_seconds() < 0:
-        # Menos de lo teórico -> horas en defecto
         return timedelta(0), -diff
     else:
-        # Justo lo teórico
         return timedelta(0), timedelta(0)
 
 def determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones, margen_extra_m=10.0):
@@ -2322,16 +2318,31 @@ def admin_registros():
         intervalos = []
 
     # ---- Resumen de horas trabajadas por usuario en el filtro actual ----
-    horas_por_usuario = {}
-    for usuario in usuarios:
-        regs_usuario = [reg for reg in registros if reg.usuario_id == usuario.id]
-        if not regs_usuario:
+    horas_por_usuario_td = {}
+
+    for it in intervalos:
+        if not it.usuario:
             continue
-        regs_usuario_ordenados = sorted(regs_usuario, key=lambda reg: reg.momento)
-        horas_dia = calcular_horas_trabajadas(regs_usuario_ordenados)
-        total = sum(horas_dia.values(), start=timedelta())
-        if total.total_seconds() > 0:
-            horas_por_usuario[usuario.username] = formatear_timedelta(total)
+
+        # Nos aseguramos de que el intervalo tenga trabajo_real calculado
+        trabajo_real = getattr(it, "trabajo_real", None)
+        if trabajo_real is None:
+            extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+            it.horas_extra = extra_td
+            it.horas_defecto = defecto_td
+            trabajo_real = getattr(it, "trabajo_real", timedelta(0))
+
+        if trabajo_real.total_seconds() <= 0:
+            continue
+
+        username = it.usuario.username
+        horas_por_usuario_td[username] = horas_por_usuario_td.get(username, timedelta()) + trabajo_real
+
+    # Lo convertimos a texto formateado HH:mm
+    horas_por_usuario = {
+        username: formatear_timedelta(td)
+        for username, td in horas_por_usuario_td.items()
+    }
 
     return render_template(
         "admin_registros.html",
