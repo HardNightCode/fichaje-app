@@ -8,10 +8,7 @@
 <div class="card mb-4">
   <div class="card-header">Filtros</div>
   <div class="card-body">
-    <form id="filtros-form"
-          action="{{ url_for('admin_registros') }}"
-          method="post"
-          class="row g-3">
+    <form id="filtros-form" action="{{ url_for('admin_registros') }}" method="post" class="row g-3">
 
       <!-- Usuario -->
       <div class="col-md-3">
@@ -111,11 +108,7 @@
           <button type="submit" name="accion" value="csv" class="btn btn-outline-secondary">
             CSV
           </button>
-          <button type="submit"
-                  name="accion"
-                  value="pdf"
-                  class="btn btn-success"
-                  formtarget="_blank">
+          <button type="submit" id="btn-pdf" name="accion" value="pdf" class="btn btn-success">
             PDF
           </button>
         </div>
@@ -197,6 +190,7 @@
               <td>
                 {% if it.label_entrada or it.label_salida %}
                   {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
+                    {# Misma ubicación en entrada y salida -> solo una vez #}
                     {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                       <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
                          class="link-primary" target="_blank">
@@ -206,6 +200,7 @@
                       {{ it.label_entrada }}
                     {% endif %}
                   {% else %}
+                    {# Ubicaciones distintas o falta alguna #}
                     {% if it.label_entrada %}
                       {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                         <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
@@ -366,62 +361,83 @@
       });
     });
 
-    // ======= Persistencia de filtros y auto-aplicación al volver de editar =======
     const filtrosForm = document.getElementById('filtros-form');
-    const STORAGE_KEY = 'admin_registros_filtros';
-    const AUTO_KEY = 'admin_registros_filtros_auto';
-
     if (filtrosForm) {
-      // Restaurar filtros guardados (sin tocar lo que ya viene del servidor si coincide)
-      try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const data = JSON.parse(saved);
-          Object.keys(data).forEach(function(name) {
-            const field = filtrosForm.elements[name];
-            if (!field) return;
-            // Solo tocamos selects/inputs simples
-            if (field.tagName === 'SELECT' || field.tagName === 'INPUT') {
-              // No pisamos valores si el servidor ha puesto algo distinto en esta vista
-              if (!field.value) {
-                field.value = data[name];
-              }
-            }
-          });
-          // Actualizar visibilidad de campos según tipo_periodo restaurado
-          actualizarVisibilidadFechas();
+      // Rellenar filtros desde localStorage
+      let savedFiltersRaw = localStorage.getItem('admin_registros_filtros');
+      if (savedFiltersRaw) {
+        try {
+          const data = JSON.parse(savedFiltersRaw);
+
+          if (data.usuario_id !== undefined && filtrosForm.usuario_id) {
+            filtrosForm.usuario_id.value = data.usuario_id;
+          }
+          if (data.tipo_periodo !== undefined && filtrosForm.tipo_periodo) {
+            filtrosForm.tipo_periodo.value = data.tipo_periodo;
+          }
+          if (data.fecha_semana !== undefined && filtrosForm.fecha_semana) {
+            filtrosForm.fecha_semana.value = data.fecha_semana;
+          }
+          if (data.mes !== undefined && filtrosForm.mes) {
+            filtrosForm.mes.value = data.mes;
+          }
+          if (data.fecha_desde !== undefined && filtrosForm.fecha_desde) {
+            filtrosForm.fecha_desde.value = data.fecha_desde;
+          }
+          if (data.fecha_hasta !== undefined && filtrosForm.fecha_hasta) {
+            filtrosForm.fecha_hasta.value = data.fecha_hasta;
+          }
+          if (data.ubicacion_filtro !== undefined && filtrosForm.ubicacion_filtro) {
+            filtrosForm.ubicacion_filtro.value = data.ubicacion_filtro;
+          }
+        } catch (e) {
+          console.error('Error leyendo filtros guardados:', e);
         }
-      } catch (e) {
-        console.error('Error restaurando filtros:', e);
       }
 
-      // Guardar filtros siempre que se envíe el formulario
+      // Reajustar visibilidad de fechas tras cargar filtros
+      actualizarVisibilidadFechas();
+
+      // Guardar filtros al enviar el formulario
       filtrosForm.addEventListener('submit', function() {
-        const formData = new FormData(filtrosForm);
-        const plain = {};
-        formData.forEach(function(value, key) {
-          // nos interesa solo los filtros, no la acción
-          if (key === 'accion') return;
-          plain[key] = value;
-        });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(plain));
-        // Cada envío manual reinicia el flag de auto-aplicación
-        sessionStorage.removeItem(AUTO_KEY);
+        const data = {
+          usuario_id: filtrosForm.usuario_id ? filtrosForm.usuario_id.value : 'all',
+          tipo_periodo: filtrosForm.tipo_periodo ? filtrosForm.tipo_periodo.value : 'rango',
+          fecha_semana: filtrosForm.fecha_semana ? filtrosForm.fecha_semana.value : '',
+          mes: filtrosForm.mes ? filtrosForm.mes.value : '',
+          fecha_desde: filtrosForm.fecha_desde ? filtrosForm.fecha_desde.value : '',
+          fecha_hasta: filtrosForm.fecha_hasta ? filtrosForm.fecha_hasta.value : '',
+          ubicacion_filtro: filtrosForm.ubicacion_filtro ? filtrosForm.ubicacion_filtro.value : 'all'
+        };
+        localStorage.setItem('admin_registros_filtros', JSON.stringify(data));
       });
 
-      // Auto-aplicar filtros al volver desde otra página (como editar_registro)
-      // Solo lo hacemos una vez por pestaña.
-      if (!sessionStorage.getItem(AUTO_KEY)) {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          sessionStorage.setItem(AUTO_KEY, '1');
-          const hiddenAccion = document.createElement('input');
-          hiddenAccion.type = 'hidden';
-          hiddenAccion.name = 'accion';
-          hiddenAccion.value = 'filtrar';
-          filtrosForm.appendChild(hiddenAccion);
-          filtrosForm.submit();
-        }
+      // Auto-aplicar filtros al volver desde la edición
+      const fromEditar = document.referrer &&
+        document.referrer.indexOf('{{ url_for("admin_registros") }}/') !== -1;
+      const alreadyAuto = sessionStorage.getItem('admin_registros_autosubmitted');
+
+      if (savedFiltersRaw && (fromEditar || !alreadyAuto)) {
+        sessionStorage.setItem('admin_registros_autosubmitted', '1');
+        // Forzamos acción "filtrar" para la auto-aplicación
+        const hiddenAccion = document.createElement('input');
+        hiddenAccion.type = 'hidden';
+        hiddenAccion.name = 'accion';
+        hiddenAccion.value = 'filtrar';
+        filtrosForm.appendChild(hiddenAccion);
+        filtrosForm.submit();
+      }
+
+      // Botón PDF en nueva pestaña
+      const btnPdf = document.getElementById('btn-pdf');
+      if (btnPdf) {
+        btnPdf.addEventListener('click', function() {
+          filtrosForm.setAttribute('target', '_blank');
+          // Restaurar target para siguientes envíos
+          setTimeout(function() {
+            filtrosForm.removeAttribute('target');
+          }, 0);
+        });
       }
     }
   });

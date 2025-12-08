@@ -48,11 +48,6 @@
         .table-container {
             margin-top: 30px;
         }
-
-        a {
-            color: #004c99;
-            text-decoration: none;
-        }
     </style>
 </head>
 <body>
@@ -63,7 +58,7 @@
     {% if resumen_horas %}
         <ul>
         {% for usuario, horas in resumen_horas.items() %}
-            <li><strong>{{ usuario }}:</strong> {{ horas }}</li>
+            <li><strong>{{ usuario }}:</strong> {{ formatear_timedelta(horas) }}</li>
         {% endfor %}
         </ul>
     {% else %}
@@ -103,31 +98,31 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if it.descanso_total %}
+                        {% if it.descanso_total and it.descanso_total.total_seconds() > 0 %}
                             {{ formatear_timedelta(it.descanso_total) }}
                         {% else %}
-                            00:00
+                            -
                         {% endif %}
                     </td>
                     <td>
-                        {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}
-                            {{ formatear_timedelta(it.horas_extra) }}
-                        {% else %}
-                            00:00
-                        {% endif %}
+                    {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}
+                        {{ formatear_timedelta(it.horas_extra) }}
+                    {% else %}
+                        -
+                    {% endif %}
                     </td>
                     <td>
-                        {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}
-                            {{ formatear_timedelta(it.horas_defecto) }}
-                        {% else %}
-                            00:00
-                        {% endif %}
+                    {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}
+                        {{ formatear_timedelta(it.horas_defecto) }}
+                    {% else %}
+                        -
+                    {% endif %}
                     </td>
                     <td>
                         {% if it.label_entrada or it.label_salida %}
                             {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
                                 {% if it.entrada_lat is not none and it.entrada_lon is not none %}
-                                    <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}">
+                                    <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" target="_blank">
                                         {{ it.label_entrada }}
                                     </a>
                                 {% else %}
@@ -136,7 +131,7 @@
                             {% else %}
                                 {% if it.label_entrada %}
                                     {% if it.entrada_lat is not none and it.entrada_lon is not none %}
-                                        <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}">
+                                        <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" target="_blank">
                                             {{ it.label_entrada }}
                                         </a>
                                     {% else %}
@@ -146,7 +141,7 @@
                                 {% if it.label_entrada and it.label_salida %} - {% endif %}
                                 {% if it.label_salida %}
                                     {% if it.salida_lat is not none and it.salida_lon is not none %}
-                                        <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}">
+                                        <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}" target="_blank">
                                             {{ it.label_salida }}
                                         </a>
                                     {% else %}
@@ -155,7 +150,7 @@
                                 {% endif %}
                             {% endif %}
                         {% else %}
-                            Sin datos
+                            <span>Sin datos</span>
                         {% endif %}
                     </td>
                 </tr>
