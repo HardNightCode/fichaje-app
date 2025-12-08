@@ -416,9 +416,6 @@ def index():
     # Intervalos Entrada/Salida SOLO del usuario actual
     intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
 
-    # Añadimos información de descanso por intervalo
-    calcular_descanso_intervalos(intervalos_usuario, registros_usuario)
-
     # Resumen: total de horas del usuario actual
     horas_por_usuario = calcular_horas_trabajadas(registros_usuario)
     total_td = horas_por_usuario.get(current_user.username, timedelta())
@@ -429,24 +426,27 @@ def index():
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
-    # --- Lógica para saber qué botón toca ahora (entrada/salida/descanso) ---
-    ultimo_registro = (
-        Registro.query.filter_by(usuario_id=current_user.id)
+    # --- Última ENTRADA/SALIDA (ignorando descansos) ---
+    ultimo_trabajo = (
+        Registro.query.filter(
+            Registro.usuario_id == current_user.id,
+            Registro.accion.in_(["entrada", "salida"]),
+        )
         .order_by(Registro.momento.desc())
         .first()
     )
 
-    if ultimo_registro is None:
-        # No hay registros: se permite ENTRADA y se bloquea SALIDA
+    if ultimo_trabajo is None:
+        # No hay fichajes de trabajo aún
         bloquear_entrada = False
         bloquear_salida = True
     else:
-        if ultimo_registro.accion == "entrada":
-            # Falta la salida → solo se debe poder fichar salida
+        if ultimo_trabajo.accion == "entrada":
+            # Hay entrada abierta -> solo se permite SALIDA
             bloquear_entrada = True
             bloquear_salida = False
         else:
-            # Última acción fue salida → toca entrada
+            # Último fue salida -> toca ENTRADA
             bloquear_entrada = False
             bloquear_salida = True
 
@@ -465,46 +465,66 @@ def index():
             if schedule.break_type in ("fixed", "flexible"):
                 tiene_descanso = True
 
-    # Determinar si hay descanso en curso (descanso_inicio sin descanso_fin)
-    ultimo_inicio_descanso = (
-        Registro.query
-        .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+    # --- ¿Hay entrada abierta? (para habilitar descanso) ---
+    ultimo_entrada = (
+        Registro.query.filter(
+            Registro.usuario_id == current_user.id,
+            Registro.accion == "entrada",
+        )
         .order_by(Registro.momento.desc())
         .first()
     )
-    descanso_en_curso = False
-    if ultimo_inicio_descanso:
-        descanso_fin_posterior = (
-            Registro.query
-            .filter(
-                Registro.usuario_id == current_user.id,
-                Registro.accion == "descanso_fin",
-                Registro.momento > ultimo_inicio_descanso.momento,
-            )
-            .first()
+    ultimo_salida = (
+        Registro.query.filter(
+            Registro.usuario_id == current_user.id,
+            Registro.accion == "salida",
         )
-        if descanso_fin_posterior is None:
-            descanso_en_curso = True
-
-    # El botón de descanso solo se habilita si:
-    #   - tiene_descanso (hay descanso configurado en el horario)
-    #   - existe al menos una entrada sin una salida posterior (está trabajando)
-    ultima_entrada = None
-    ultima_salida = None
-
-    if registros_usuario:
-        entradas = [r for r in registros_usuario if r.accion == "entrada"]
-        salidas = [r for r in registros_usuario if r.accion == "salida"]
-        if entradas:
-            ultima_entrada = max(entradas, key=lambda r: r.momento)
-        if salidas:
-            ultima_salida = max(salidas, key=lambda r: r.momento)
-
-    bloquear_descanso = (
-        not tiene_descanso
-        or ultima_entrada is None
-        or (ultima_salida and ultima_salida.momento > ultima_entrada.momento)
+        .order_by(Registro.momento.desc())
+        .first()
     )
+
+    entrada_abierta = False
+    if ultimo_entrada:
+        # Entrada abierta si no hay salida posterior
+        if not ultimo_salida or ultimo_entrada.momento > ultimo_salida.momento:
+            entrada_abierta = True
+
+    # --- ¿Hay descanso en curso? ---
+    ultimo_descanso_inicio = (
+        Registro.query.filter(
+            Registro.usuario_id == current_user.id,
+            Registro.accion == "descanso_inicio",
+        )
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+    ultimo_descanso_fin = (
+        Registro.query.filter(
+            Registro.usuario_id == current_user.id,
+            Registro.accion == "descanso_fin",
+        )
+        .order_by(Registro.momento.desc())
+        .first()
+    )
+
+    descanso_en_curso = False
+    if ultimo_descanso_inicio and entrada_abierta:
+        # Descanso en curso si no hay fin, o el último inicio es posterior al último fin
+        if (not ultimo_descanso_fin) or (
+            ultimo_descanso_inicio.momento > ultimo_descanso_fin.momento
+        ):
+            # Opcionalmente, comprobamos que el descanso sea después de la última entrada
+            if (not ultimo_entrada) or (
+                ultimo_descanso_inicio.momento >= ultimo_entrada.momento
+            ):
+                descanso_en_curso = True
+
+    # --- Bloqueo del botón de descanso ---
+    # Solo se puede usar descanso si hay entrada abierta.
+    if not entrada_abierta:
+        bloquear_descanso = True
+    else:
+        bloquear_descanso = False
 
     return render_template(
         "index.html",
@@ -516,8 +536,8 @@ def index():
         bloquear_entrada=bloquear_entrada,
         bloquear_salida=bloquear_salida,
         tiene_descanso=tiene_descanso,
-        bloquear_descanso=bloquear_descanso,
         descanso_en_curso=descanso_en_curso,
+        bloquear_descanso=bloquear_descanso,
     )
 
 @app.route("/admin/ubicaciones", methods=["GET", "POST"])
