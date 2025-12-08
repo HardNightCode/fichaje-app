@@ -1845,6 +1845,7 @@ def fichar():
         .first()
     )
 
+    # === Validación de secuencia entrada/salida/descanso ===
     if accion in ("entrada", "salida"):
         # Validación estándar de entrada/salida
         es_valido, msg_error = validar_secuencia_fichaje(accion, ultimo_registro)
@@ -1965,6 +1966,64 @@ def fichar():
                 "error",
             )
             return redirect(url_for("index"))
+
+    # === Coordenadas ===
+    lat_str = request.form.get("lat")
+    lon_str = request.form.get("lon")
+
+    if not lat_str or not lon_str:
+        flash(
+            "No se recibió la ubicación del dispositivo. Comprueba los permisos de geolocalización.",
+            "error",
+        )
+        return redirect(url_for("index"))
+
+    try:
+        lat_user = float(lat_str)
+        lon_user = float(lon_str)
+    except ValueError:
+        flash("Coordenadas de ubicación inválidas.", "error")
+        return redirect(url_for("index"))
+
+    # Si NO está en modo Flexible, comprobamos radios
+    if not flexible_activo:
+        autorizado = False
+
+        for loc in ubicaciones_usuario:
+            # Por si coexistieran Flexible + fijas, ignoramos Flexible en el cálculo de radios
+            if (loc.name or "").lower() == "flexible":
+                continue
+
+            if is_within_radius(
+                lat_user,
+                lon_user,
+                loc.latitude,
+                loc.longitude,
+                loc.radius_meters,
+            ):
+                autorizado = True
+                break
+
+        if not autorizado:
+            flash(
+                "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
+                "error",
+            )
+            return redirect(url_for("index"))
+
+    # === Registro de fichaje ===
+    registro = Registro(
+        usuario_id=current_user.id,
+        accion=accion,
+        momento=datetime.utcnow(),
+        latitude=lat_user,
+        longitude=lon_user,
+    )
+    db.session.add(registro)
+    db.session.commit()
+
+    flash("Fichaje registrado correctamente", "success")
+    return redirect(url_for("index"))
 
 # ======================================================
 # Gestión de usuarios
