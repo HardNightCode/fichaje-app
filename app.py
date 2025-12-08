@@ -2431,6 +2431,73 @@ def editar_registro(registro_id):
             flash("La fecha/hora de entrada no puede ser posterior a la de salida.", "error")
             return redirect(url_for("editar_registro", registro_id=registro_id))
 
+        # --------- AJUSTE DEL DESCANSO SEGÚN EL FORMULARIO ---------
+        # Solo tiene sentido si hay entrada y salida
+        descanso_str = request.form.get("descanso_val") or request.form.get("descanso") or ""
+        descanso_str = descanso_str.strip()
+
+        if entrada_m and salida_m and descanso_str:
+            # Formato esperado: "HH:MM"
+            try:
+                partes = descanso_str.split(":")
+                if len(partes) != 2:
+                    raise ValueError("Formato incorrecto")
+
+                horas = int(partes[0])
+                minutos = int(partes[1])
+                total_min = horas * 60 + minutos
+
+                if total_min < 0:
+                    total_min = 0
+            except Exception:
+                db.session.rollback()
+                flash("Formato de descanso no válido (usa HH:MM).", "error")
+                return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            # Borrar TODOS los registros de descanso dentro del intervalo actual
+            # para este usuario, y recrearlos con la nueva duración
+            if total_min >= 0:
+                # Eliminamos registros 'descanso_inicio' y 'descanso_fin' del tramo
+                Registro.query.filter(
+                    Registro.usuario_id == nuevo_usuario_id,
+                    Registro.momento >= entrada_m,
+                    Registro.momento <= salida_m,
+                    Registro.accion.in_(["descanso_inicio", "descanso_fin"]),
+                ).delete(synchronize_session=False)
+
+                # Si el descanso es > 0, creamos un nuevo par
+                if total_min > 0:
+                    duracion_descanso = timedelta(minutes=total_min)
+
+                    # Colocamos el descanso "centrado" en el intervalo
+                    dur_trabajo = salida_m - entrada_m
+                    if dur_trabajo.total_seconds() < duracion_descanso.total_seconds():
+                        # Si el descanso es mayor que el intervalo, lo ajustamos
+                        duracion_descanso = dur_trabajo
+
+                    mitad = entrada_m + dur_trabajo / 2
+                    inicio_descanso = mitad - duracion_descanso / 2
+                    fin_descanso = inicio_descanso + duracion_descanso
+
+                    reg_ini = Registro(
+                        usuario_id=nuevo_usuario_id,
+                        accion="descanso_inicio",
+                        momento=inicio_descanso,
+                        latitude=entrada.latitude if entrada else None,
+                        longitude=entrada.longitude if entrada else None,
+                    )
+                    reg_fin = Registro(
+                        usuario_id=nuevo_usuario_id,
+                        accion="descanso_fin",
+                        momento=fin_descanso,
+                        latitude=salida.latitude if salida else None,
+                        longitude=salida.longitude if salida else None,
+                    )
+                    db.session.add(reg_ini)
+                    db.session.add(reg_fin)
+
+        # --------- FIN AJUSTE DESCANSO ---------
+
         db.session.commit()
         flash("Registro actualizado correctamente.", "success")
         return redirect(url_for("admin_registros"))

@@ -70,14 +70,15 @@
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label">Tiempo de descanso (real)</label>
-          <input type="text"
-                 name="descanso_manual"
+          <input type="time"
+                 name="descanso_val"
                  class="form-control"
-                 value="{{ descanso_val }}"
-                 placeholder="Ejemplo: 01:00">
+                 step="60"
+                 value="{{ descanso_val }}">
           <div class="form-text">
             Indica el descanso en formato <strong>HH:mm</strong>.
-            Si lo dejas como <code>00:00</code>, se usará el descanso calculado automáticamente.
+            Si lo dejas vacío, no se modificará el descanso.
+            Si pones <code>00:00</code>, se eliminará el descanso del intervalo.
           </div>
         </div>
       </div>
