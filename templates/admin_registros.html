@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base.html" %} 
 
 {% block title %}Registros - Administración{% endblock %}
 
@@ -8,7 +8,10 @@
 <div class="card mb-4">
   <div class="card-header">Filtros</div>
   <div class="card-body">
-    <form action="{{ url_for('admin_registros') }}" method="post" class="row g-3">
+    <form id="filtros-form"
+          action="{{ url_for('admin_registros') }}"
+          method="post"
+          class="row g-3">
 
       <!-- Usuario -->
       <div class="col-md-3">
@@ -108,7 +111,11 @@
           <button type="submit" name="accion" value="csv" class="btn btn-outline-secondary">
             CSV
           </button>
-          <button type="submit" name="accion" value="pdf" class="btn btn-success">
+          <button type="submit"
+                  name="accion"
+                  value="pdf"
+                  class="btn btn-success"
+                  formtarget="_blank">
             PDF
           </button>
         </div>
@@ -190,7 +197,6 @@
               <td>
                 {% if it.label_entrada or it.label_salida %}
                   {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
-                    {# Misma ubicación en entrada y salida -> solo una vez #}
                     {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                       <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
                          class="link-primary" target="_blank">
@@ -200,7 +206,6 @@
                       {{ it.label_entrada }}
                     {% endif %}
                   {% else %}
-                    {# Ubicaciones distintas o falta alguna #}
                     {% if it.label_entrada %}
                       {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                         <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
@@ -360,6 +365,65 @@
         }
       });
     });
+
+    // ======= Persistencia de filtros y auto-aplicación al volver de editar =======
+    const filtrosForm = document.getElementById('filtros-form');
+    const STORAGE_KEY = 'admin_registros_filtros';
+    const AUTO_KEY = 'admin_registros_filtros_auto';
+
+    if (filtrosForm) {
+      // Restaurar filtros guardados (sin tocar lo que ya viene del servidor si coincide)
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const data = JSON.parse(saved);
+          Object.keys(data).forEach(function(name) {
+            const field = filtrosForm.elements[name];
+            if (!field) return;
+            // Solo tocamos selects/inputs simples
+            if (field.tagName === 'SELECT' || field.tagName === 'INPUT') {
+              // No pisamos valores si el servidor ha puesto algo distinto en esta vista
+              if (!field.value) {
+                field.value = data[name];
+              }
+            }
+          });
+          // Actualizar visibilidad de campos según tipo_periodo restaurado
+          actualizarVisibilidadFechas();
+        }
+      } catch (e) {
+        console.error('Error restaurando filtros:', e);
+      }
+
+      // Guardar filtros siempre que se envíe el formulario
+      filtrosForm.addEventListener('submit', function() {
+        const formData = new FormData(filtrosForm);
+        const plain = {};
+        formData.forEach(function(value, key) {
+          // nos interesa solo los filtros, no la acción
+          if (key === 'accion') return;
+          plain[key] = value;
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(plain));
+        // Cada envío manual reinicia el flag de auto-aplicación
+        sessionStorage.removeItem(AUTO_KEY);
+      });
+
+      // Auto-aplicar filtros al volver desde otra página (como editar_registro)
+      // Solo lo hacemos una vez por pestaña.
+      if (!sessionStorage.getItem(AUTO_KEY)) {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          sessionStorage.setItem(AUTO_KEY, '1');
+          const hiddenAccion = document.createElement('input');
+          hiddenAccion.type = 'hidden';
+          hiddenAccion.name = 'accion';
+          hiddenAccion.value = 'filtrar';
+          filtrosForm.appendChild(hiddenAccion);
+          filtrosForm.submit();
+        }
+      }
+    }
   });
 </script>
 

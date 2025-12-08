@@ -2688,6 +2688,7 @@ def generar_csv(intervalos):
         "Usuario",
         "Fecha/hora entrada",
         "Fecha/hora salida",
+        "Descanso",       # ⬅ NUEVA COLUMNA
         "Ubicación",
         "Horas extra",
         "Horas en defecto",
@@ -2704,6 +2705,12 @@ def generar_csv(intervalos):
         else:
             fs = ""
 
+        # Descanso real del intervalo (si no existe, asumimos 00:00)
+        if hasattr(it, "descanso_total") and it.descanso_total:
+            descanso_str = formatear_timedelta(it.descanso_total)
+        else:
+            descanso_str = "00:00"
+
         # Formatear horas extra/defecto si existen
         he = ""
         hd = ""
@@ -2716,9 +2723,10 @@ def generar_csv(intervalos):
             it.usuario.username if it.usuario else "",
             fe,
             fs,
+            descanso_str,          # ⬅ NUEVA COLUMNA
             it.ubicacion_label or "",
-            he,  # Horas extra
-            hd,  # Horas en defecto
+            he,                    # Horas extra
+            hd,                    # Horas en defecto
         ])
 
     csv_data = output.getvalue().encode("utf-8-sig")
@@ -2734,24 +2742,34 @@ def generar_csv(intervalos):
 def generar_pdf(intervalos, tipo_periodo: str):
     """
     Genera un PDF usando la plantilla informe_pdf.html,
-    mostrando intervalos Entrada/Salida.
+    mostrando intervalos Entrada/Salida y su resumen de horas.
     """
 
-    # Calcular horas extra/defecto para cada intervalo
+    # Aseguramos horas extra/defecto y trabajo_real en cada intervalo
     for it in intervalos:
         extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
         it.horas_extra = extra_td
         it.horas_defecto = defecto_td
 
-    # Para el resumen de horas, aplanamos de nuevo a lista de registros
-    registros_flat = []
-    for it in intervalos:
-        if it.entrada is not None:
-            registros_flat.append(it.entrada)
-        if it.salida is not None:
-            registros_flat.append(it.salida)
+    # --- Resumen de horas trabajadas por usuario (mismas reglas que en la vista) ---
+    resumen_td = {}
 
-    resumen_horas = calcular_horas_trabajadas(registros_flat)
+    for it in intervalos:
+        if not it.usuario:
+            continue
+
+        trabajo_real = getattr(it, "trabajo_real", timedelta(0))
+        if trabajo_real.total_seconds() <= 0:
+            continue
+
+        username = it.usuario.username
+        resumen_td[username] = resumen_td.get(username, timedelta()) + trabajo_real
+
+    # Pasamos al template un dict username -> "HH:MM"
+    resumen_horas = {
+        username: formatear_timedelta(td)
+        for username, td in resumen_td.items()
+    }
 
     # Renderizar el PDF
     html = render_template(
@@ -2759,7 +2777,7 @@ def generar_pdf(intervalos, tipo_periodo: str):
         intervalos=intervalos,
         resumen_horas=resumen_horas,
         tipo_periodo=tipo_periodo,
-        formatear_timedelta=formatear_timedelta  # Asegúrate de pasar la función
+        formatear_timedelta=formatear_timedelta,
     )
     return render_pdf(HTML(string=html))
     
