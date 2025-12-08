@@ -416,6 +416,9 @@ def index():
     # Intervalos Entrada/Salida SOLO del usuario actual
     intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
 
+    # Añadimos información de descanso por intervalo
+    calcular_descanso_intervalos(intervalos_usuario, registros_usuario)
+
     # Resumen: total de horas del usuario actual
     horas_por_usuario = calcular_horas_trabajadas(registros_usuario)
     total_td = horas_por_usuario.get(current_user.username, timedelta())
@@ -426,43 +429,24 @@ def index():
     tiene_ubicaciones = len(ubicaciones_usuario) > 0
     tiene_flexible = usuario_tiene_flexible(current_user)
 
-    # --- Lógica basada SOLO en entrada/salida (ignoramos descansos) ---
-    ultima_entrada = (
-        Registro.query
-        .filter_by(usuario_id=current_user.id, accion="entrada")
+    # --- Lógica para saber qué botón toca ahora (entrada/salida/descanso) ---
+    ultimo_registro = (
+        Registro.query.filter_by(usuario_id=current_user.id)
         .order_by(Registro.momento.desc())
         .first()
     )
 
-    intervalo_abierto = False
-
-    if ultima_entrada:
-        # ¿Existe una salida posterior a la última entrada?
-        salida_posterior = (
-            Registro.query
-            .filter(
-                Registro.usuario_id == current_user.id,
-                Registro.accion == "salida",
-                Registro.momento > ultima_entrada.momento,
-            )
-            .order_by(Registro.momento.asc())
-            .first()
-        )
-        if salida_posterior is None:
-            intervalo_abierto = True
-
-    # --- Decidir bloqueo de ENTRADA/SALIDA ---
-    if not ultima_entrada:
-        # Nunca ha fichado: solo puede ENTRADA
+    if ultimo_registro is None:
+        # No hay registros: se permite ENTRADA y se bloquea SALIDA
         bloquear_entrada = False
         bloquear_salida = True
     else:
-        if intervalo_abierto:
-            # Tiene una entrada sin salida: solo puede SALIDA
+        if ultimo_registro.accion == "entrada":
+            # Falta la salida → solo se debe poder fichar salida
             bloquear_entrada = True
             bloquear_salida = False
         else:
-            # Su última entrada ya tiene salida -> nueva jornada: solo ENTRADA
+            # Última acción fue salida → toca entrada
             bloquear_entrada = False
             bloquear_salida = True
 
@@ -481,17 +465,16 @@ def index():
             if schedule.break_type in ("fixed", "flexible"):
                 tiene_descanso = True
 
-    # --- ¿Hay un descanso en curso? (inicio sin fin posterior) ---
+    # Determinar si hay descanso en curso (descanso_inicio sin descanso_fin)
     ultimo_inicio_descanso = (
         Registro.query
         .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
         .order_by(Registro.momento.desc())
         .first()
     )
-
     descanso_en_curso = False
     if ultimo_inicio_descanso:
-        fin_posterior = (
+        descanso_fin_posterior = (
             Registro.query
             .filter(
                 Registro.usuario_id == current_user.id,
@@ -500,16 +483,28 @@ def index():
             )
             .first()
         )
-        if not fin_posterior:
+        if descanso_fin_posterior is None:
             descanso_en_curso = True
 
-    # --- Lógica de bloqueo del botón de descanso ---
-    # Solo se permite descanso si:
-    #   - el horario tiene descanso configurado
-    #   - hay jornada abierta (entrada sin salida)
-    bloquear_descanso = True
-    if tiene_descanso and intervalo_abierto:
-        bloquear_descanso = False
+    # El botón de descanso solo se habilita si:
+    #   - tiene_descanso (hay descanso configurado en el horario)
+    #   - existe al menos una entrada sin una salida posterior (está trabajando)
+    ultima_entrada = None
+    ultima_salida = None
+
+    if registros_usuario:
+        entradas = [r for r in registros_usuario if r.accion == "entrada"]
+        salidas = [r for r in registros_usuario if r.accion == "salida"]
+        if entradas:
+            ultima_entrada = max(entradas, key=lambda r: r.momento)
+        if salidas:
+            ultima_salida = max(salidas, key=lambda r: r.momento)
+
+    bloquear_descanso = (
+        not tiene_descanso
+        or ultima_entrada is None
+        or (ultima_salida and ultima_salida.momento > ultima_entrada.momento)
+    )
 
     return render_template(
         "index.html",
@@ -1347,6 +1342,99 @@ def calcular_descanso_intervalo(usuario_id: int,
             total += limite_fin - inicio_actual
 
     return total
+
+def calcular_descanso_intervalos(intervalos, registros, ahora=None):
+    """
+    Para cada intervalo (entrada/salida) calcula:
+      - it.descanso_total: timedelta total de descanso REAL dentro del intervalo
+      - it.descanso_en_curso: bool (True si hay un descanso abierto)
+      - it.descanso_label: texto amigable para mostrar en la tabla
+
+    Registros de descanso: accion in ('descanso_inicio', 'descanso_fin').
+    """
+    if ahora is None:
+        ahora = datetime.now()
+
+    # Agrupamos todos los registros por usuario
+    regs_por_usuario = defaultdict(list)
+    for r in registros:
+        if r.usuario_id is not None and r.momento is not None:
+            regs_por_usuario[r.usuario_id].append(r)
+
+    # Ordenamos cronológicamente por usuario
+    for uid in regs_por_usuario:
+        regs_por_usuario[uid].sort(key=lambda r: r.momento)
+
+    for it in intervalos:
+        # Valores por defecto
+        it.descanso_total = timedelta(0)
+        it.descanso_en_curso = False
+        it.descanso_label = "Sin descanso"
+
+        if not getattr(it, "usuario", None) or not it.usuario:
+            continue
+
+        regs_usuario = regs_por_usuario.get(it.usuario.id, [])
+        if not regs_usuario:
+            continue
+
+        # Determinar ventana de tiempo del intervalo
+        if it.entrada_momento:
+            inicio_ventana = it.entrada_momento
+        elif it.salida_momento:
+            # Caso raro: intervalo sin entrada, solo salida. Damos margen de 12h hacia atrás.
+            inicio_ventana = it.salida_momento - timedelta(hours=12)
+        else:
+            # Sin entrada ni salida -> no tiene sentido calcular descanso
+            continue
+
+        if it.salida_momento:
+            fin_ventana = it.salida_momento
+        else:
+            # Intervalo abierto (sin salida) -> hasta ahora
+            fin_ventana = ahora
+
+        # Ajuste por si cruza medianoche (salida "antes" que entrada)
+        if fin_ventana < inicio_ventana:
+            fin_ventana += timedelta(days=1)
+
+        total = timedelta(0)
+        ultimo_inicio = None
+
+        for r in regs_usuario:
+            if r.momento < inicio_ventana:
+                continue
+            if r.momento > fin_ventana:
+                break
+
+            if r.accion == "descanso_inicio":
+                ultimo_inicio = r.momento
+            elif r.accion == "descanso_fin" and ultimo_inicio is not None:
+                fin = r.momento
+                if fin < ultimo_inicio:
+                    fin += timedelta(days=1)
+                total += (fin - ultimo_inicio)
+                ultimo_inicio = None
+
+        # Si queda un descanso abierto dentro de la ventana
+        en_curso = False
+        if ultimo_inicio is not None:
+            en_curso = True
+            fin = fin_ventana
+            if fin < ultimo_inicio:
+                fin += timedelta(days=1)
+            total += (fin - ultimo_inicio)
+
+        it.descanso_total = total
+        it.descanso_en_curso = en_curso
+
+        if en_curso and total.total_seconds() > 0:
+            it.descanso_label = f"Descansando ({formatear_timedelta(total)})"
+        elif total.total_seconds() > 0:
+            # Descanso terminado -> mostramos tiempo real
+            it.descanso_label = formatear_timedelta(total)
+        else:
+            it.descanso_label = "Sin descanso"
 
 def usuario_tiene_intervalo_abierto(user_id: int) -> bool:
     """
@@ -2232,6 +2320,9 @@ def admin_registros():
             it.horas_extra = extra_td
             it.horas_defecto = defecto_td
 
+        # ---- Calcular descanso real por intervalo ----
+        calcular_descanso_intervalos(intervalos, registros)
+        
         # ---- Exportaciones ----
         if accion == "csv":
             return generar_csv(intervalos)

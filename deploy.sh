@@ -62,14 +62,19 @@ fi
 
 # ===========================
 #  MODO reset_db
+#   reset_db SERVICE_NAME DB_NAME DB_USER [BACKUP_FILE]
 # ===========================
 if [[ "$MODE" == "reset_db" ]]; then
-  DB_NAME="${2:-}"
-  DB_USER="${3:-}"
-  SYSTEMD_SERVICE_NAME="${4:-}"
+  SYSTEMD_SERVICE_NAME="${2:-}"
+  DB_NAME="${3:-}"
+  DB_USER="${4:-}"
+  BACKUP_FILE="${5:-}"
 
-  if [[ -z "$DB_NAME" || -z "$DB_USER" ]]; then
-    fail "DB_NAME y DB_USER requeridos en modo reset_db"
+  if [[ -z "$SYSTEMD_SERVICE_NAME" || -z "$DB_NAME" || -z "$DB_USER" ]]; then
+    fail "SYSTEMD_SERVICE_NAME, DB_NAME y DB_USER requeridos en modo reset_db"
+  fi
+  if ! [[ "$SYSTEMD_SERVICE_NAME" =~ $valid_service_re ]]; then
+    fail "SYSTEMD_SERVICE_NAME invalido"
   fi
   if ! [[ "$DB_NAME" =~ $valid_db_re ]]; then
     fail "DB_NAME invalido"
@@ -78,85 +83,34 @@ if [[ "$MODE" == "reset_db" ]]; then
     fail "DB_USER invalido"
   fi
 
-  if [[ -n "$SYSTEMD_SERVICE_NAME" ]]; then
-    if ! [[ "$SYSTEMD_SERVICE_NAME" =~ $valid_service_re ]]; then
-      fail "SYSTEMD_SERVICE_NAME invalido en modo reset_db"
+  if [[ -n "$BACKUP_FILE" ]]; then
+    if [[ ! -f "$BACKUP_FILE" ]]; then
+      fail "BACKUP_FILE no existe: ${BACKUP_FILE}"
     fi
   fi
 
   echo "[*] Reseteando BBDD '${DB_NAME}'..." >&2
 
-  echo "[*] Terminando conexiones activas a '${DB_NAME}'..." >&2
-  sudo -u postgres psql <<EOF
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = '${DB_NAME}'
-  AND pid <> pg_backend_pid();
-EOF
+  echo "[*] Parando servicio ${SYSTEMD_SERVICE_NAME}..." >&2
+  systemctl stop "${SYSTEMD_SERVICE_NAME}" || true
 
-  echo "[*] Eliminando BBDD si existe..." >&2
   sudo -u postgres psql -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";"
-
-  echo "[*] Creando de nuevo la BBDD..." >&2
   sudo -u postgres psql -c "CREATE DATABASE \"${DB_NAME}\";"
 
-  echo "[*] Garantizando privilegios basicos para el usuario '${DB_USER}'..." >&2
-  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${DB_NAME}\" TO \"${DB_USER}\";"
-
-  echo "[*] Creando tablas basicas (location, user, registro)..." >&2
-  sudo -u postgres psql -d "${DB_NAME}" <<'EOF'
-CREATE TABLE "location" (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(120) NOT NULL,
-    latitude DOUBLE PRECISION NOT NULL,
-    longitude DOUBLE PRECISION NOT NULL,
-    radius_meters DOUBLE PRECISION NOT NULL
-);
-
-CREATE TABLE "user" (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(80) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(20) NOT NULL,
-    location_id INTEGER REFERENCES "location"(id)
-);
-
-CREATE TABLE "registro" (
-    id SERIAL PRIMARY KEY,
-    usuario_id INTEGER NOT NULL REFERENCES "user"(id),
-    accion VARCHAR(20) NOT NULL,
-    momento TIMESTAMP WITHOUT TIME ZONE NOT NULL,
-    latitude DOUBLE PRECISION,
-    longitude DOUBLE PRECISION
-);
-
-INSERT INTO "location" (name, latitude, longitude, radius_meters)
-VALUES ('Default', 0.0, 0.0, 0.0);
-
-INSERT INTO "user" (username, password_hash, role, location_id)
-VALUES (
-    'admin',
-    'scrypt:32768:8:1$pwuaYXUlCZsXcwJY$58f2f8085a184954616ac7fcbfbc344d6edee053e225083ec3321e23fb1e668beade4acdbbc29036f757fa632b0ef68b295fbe132e35440a75718d4ef4177edd',
-    'admin',
-    NULL
-);
-EOF
-
-  echo "[*] Ajustando privilegios sobre tablas y secuencias para '${DB_USER}'..." >&2
-  sudo -u postgres psql -d "${DB_NAME}" <<EOF
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "${DB_USER}";
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "${DB_USER}";
-EOF
-
-  if [[ -n "$SYSTEMD_SERVICE_NAME" ]]; then
-    echo "[*] Reiniciando servicio ${SYSTEMD_SERVICE_NAME}..." >&2
-    systemctl restart "${SYSTEMD_SERVICE_NAME}"
-    echo "[OK] Servicio ${SYSTEMD_SERVICE_NAME} reiniciado tras reset_db." >&2
+  if [[ -n "$BACKUP_FILE" ]]; then
+    echo "[*] Restaurando backup desde '${BACKUP_FILE}'..." >&2
+    sudo -u postgres psql -d "${DB_NAME}" -f "${BACKUP_FILE}"
   fi
 
-  echo "[OK] BBDD '${DB_NAME}' reseteada, esquema basico creado y privilegios aplicados." >&2
+  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${DB_NAME}\" TO \"${DB_USER}\";"
+
+  echo "[*] Arrancando de nuevo servicio ${SYSTEMD_SERVICE_NAME}..." >&2
+  systemctl restart "${SYSTEMD_SERVICE_NAME}"
+
+  echo "[OK] BBDD '${DB_NAME}' reseteada y servicio reiniciado." >&2
   exit 0
 fi
+
 
 # ===========================
 #  MODO delete_db (backup + drop)

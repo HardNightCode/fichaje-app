@@ -142,6 +142,7 @@
               <thead class="table-light">
                 <tr>
                   <th>Entrada</th>
+                  <th>Descanso</th>
                   <th>Salida</th>
                   <th>Ubicación</th>
                 </tr>
@@ -156,6 +157,17 @@
                       <span class="text-muted">Sin entrada</span>
                     {% endif %}
                   </td>
+
+                  <td>
+                    {% if it.descanso_en_curso %}
+                      <span class="text-warning">{{ it.descanso_label }}</span>
+                    {% elif it.descanso_total and it.descanso_total.total_seconds() > 0 %}
+                      {{ it.descanso_label }}
+                    {% else %}
+                      <span class="text-muted">Sin descanso</span>
+                    {% endif %}
+                  </td>
+
                   <td>
                     {% if it.salida_momento %}
                       {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
@@ -163,6 +175,7 @@
                       <span class="text-muted">Sin salida</span>
                     {% endif %}
                   </td>
+
                   <td>
                     {% if it.label_entrada or it.label_salida %}
                       {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
