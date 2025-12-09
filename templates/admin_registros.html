@@ -190,7 +190,6 @@
               <td>
                 {% if it.label_entrada or it.label_salida %}
                   {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
-                    {# Misma ubicación en entrada y salida -> solo una vez #}
                     {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                       <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
                          class="link-primary" target="_blank">
@@ -200,7 +199,6 @@
                       {{ it.label_entrada }}
                     {% endif %}
                   {% else %}
-                    {# Ubicaciones distintas o falta alguna #}
                     {% if it.label_entrada %}
                       {% if it.entrada_lat is not none and it.entrada_lon is not none %}
                         <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}"
@@ -306,6 +304,9 @@
 </div>
 
 <script>
+  // El servidor nos dice si hay intervalos ya calculados
+  var hayIntervalos = {{ 'true' if intervalos else 'false' }};
+
   function actualizarVisibilidadFechas() {
     var tipo = document.getElementById('tipo_periodo').value;
     var grupoSemana = document.getElementById('grupo-semana');
@@ -363,32 +364,36 @@
 
     const filtrosForm = document.getElementById('filtros-form');
     if (filtrosForm) {
+      const getField = function(name) {
+        return filtrosForm.elements[name] || null;
+      };
+
       // Rellenar filtros desde localStorage
       let savedFiltersRaw = localStorage.getItem('admin_registros_filtros');
       if (savedFiltersRaw) {
         try {
           const data = JSON.parse(savedFiltersRaw);
 
-          if (data.usuario_id !== undefined && filtrosForm.usuario_id) {
-            filtrosForm.usuario_id.value = data.usuario_id;
+          if (data.usuario_id !== undefined && getField('usuario_id')) {
+            getField('usuario_id').value = data.usuario_id;
           }
-          if (data.tipo_periodo !== undefined && filtrosForm.tipo_periodo) {
-            filtrosForm.tipo_periodo.value = data.tipo_periodo;
+          if (data.tipo_periodo !== undefined && getField('tipo_periodo')) {
+            getField('tipo_periodo').value = data.tipo_periodo;
           }
-          if (data.fecha_semana !== undefined && filtrosForm.fecha_semana) {
-            filtrosForm.fecha_semana.value = data.fecha_semana;
+          if (data.fecha_semana !== undefined && getField('fecha_semana')) {
+            getField('fecha_semana').value = data.fecha_semana;
           }
-          if (data.mes !== undefined && filtrosForm.mes) {
-            filtrosForm.mes.value = data.mes;
+          if (data.mes !== undefined && getField('mes')) {
+            getField('mes').value = data.mes;
           }
-          if (data.fecha_desde !== undefined && filtrosForm.fecha_desde) {
-            filtrosForm.fecha_desde.value = data.fecha_desde;
+          if (data.fecha_desde !== undefined && getField('fecha_desde')) {
+            getField('fecha_desde').value = data.fecha_desde;
           }
-          if (data.fecha_hasta !== undefined && filtrosForm.fecha_hasta) {
-            filtrosForm.fecha_hasta.value = data.fecha_hasta;
+          if (data.fecha_hasta !== undefined && getField('fecha_hasta')) {
+            getField('fecha_hasta').value = data.fecha_hasta;
           }
-          if (data.ubicacion_filtro !== undefined && filtrosForm.ubicacion_filtro) {
-            filtrosForm.ubicacion_filtro.value = data.ubicacion_filtro;
+          if (data.ubicacion_filtro !== undefined && getField('ubicacion_filtro')) {
+            getField('ubicacion_filtro').value = data.ubicacion_filtro;
           }
         } catch (e) {
           console.error('Error leyendo filtros guardados:', e);
@@ -401,25 +406,24 @@
       // Guardar filtros al enviar el formulario
       filtrosForm.addEventListener('submit', function() {
         const data = {
-          usuario_id: filtrosForm.usuario_id ? filtrosForm.usuario_id.value : 'all',
-          tipo_periodo: filtrosForm.tipo_periodo ? filtrosForm.tipo_periodo.value : 'rango',
-          fecha_semana: filtrosForm.fecha_semana ? filtrosForm.fecha_semana.value : '',
-          mes: filtrosForm.mes ? filtrosForm.mes.value : '',
-          fecha_desde: filtrosForm.fecha_desde ? filtrosForm.fecha_desde.value : '',
-          fecha_hasta: filtrosForm.fecha_hasta ? filtrosForm.fecha_hasta.value : '',
-          ubicacion_filtro: filtrosForm.ubicacion_filtro ? filtrosForm.ubicacion_filtro.value : 'all'
+          usuario_id: getField('usuario_id') ? getField('usuario_id').value : 'all',
+          tipo_periodo: getField('tipo_periodo') ? getField('tipo_periodo').value : 'rango',
+          fecha_semana: getField('fecha_semana') ? getField('fecha_semana').value : '',
+          mes: getField('mes') ? getField('mes').value : '',
+          fecha_desde: getField('fecha_desde') ? getField('fecha_desde').value : '',
+          fecha_hasta: getField('fecha_hasta') ? getField('fecha_hasta').value : '',
+          ubicacion_filtro: getField('ubicacion_filtro') ? getField('ubicacion_filtro').value : 'all'
         };
         localStorage.setItem('admin_registros_filtros', JSON.stringify(data));
       });
 
-      // Auto-aplicar filtros al volver desde la edición
-      const fromEditar = document.referrer &&
-        document.referrer.indexOf('{{ url_for("admin_registros") }}/') !== -1;
+      // Auto-aplicar filtros si:
+      // - hay filtros guardados
+      // - no hay intervalos renderizados (intervalos vacíos)
+      // - todavía no hemos auto-enviado en esta pestaña
       const alreadyAuto = sessionStorage.getItem('admin_registros_autosubmitted');
-
-      if (savedFiltersRaw && (fromEditar || !alreadyAuto)) {
+      if (savedFiltersRaw && !hayIntervalos && !alreadyAuto) {
         sessionStorage.setItem('admin_registros_autosubmitted', '1');
-        // Forzamos acción "filtrar" para la auto-aplicación
         const hiddenAccion = document.createElement('input');
         hiddenAccion.type = 'hidden';
         hiddenAccion.name = 'accion';
@@ -433,7 +437,6 @@
       if (btnPdf) {
         btnPdf.addEventListener('click', function() {
           filtrosForm.setAttribute('target', '_blank');
-          // Restaurar target para siguientes envíos
           setTimeout(function() {
             filtrosForm.removeAttribute('target');
           }, 0);
