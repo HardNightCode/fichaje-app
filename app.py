@@ -34,12 +34,44 @@ from types import SimpleNamespace
 # ======================================================
 # Configuración básica de Flask
 # ======================================================
-
-app = Flask(__name__)
-
-# Zona horaria local de referencia
+# Zona horaria local (España peninsular)
 TZ_LOCAL = ZoneInfo("Europe/Madrid")
 
+
+def to_local(dt_utc_naive):
+    """
+    Convierte un datetime naive de BD (interpretado como UTC)
+    a hora local Europe/Madrid (aware), respetando cambios de horario.
+    """
+    if dt_utc_naive is None:
+        return None
+
+    # Si ya viene con tzinfo, lo consideramos en UTC
+    if dt_utc_naive.tzinfo is not None:
+        dt_aware_utc = dt_utc_naive.astimezone(timezone.utc)
+    else:
+        dt_aware_utc = dt_utc_naive.replace(tzinfo=timezone.utc)
+
+    return dt_aware_utc.astimezone(TZ_LOCAL)
+
+
+def local_to_utc_naive(dt_local_naive):
+    """
+    Convierte un datetime naive de hora local Europe/Madrid
+    a datetime naive en UTC (para guardar en BD).
+    """
+    if dt_local_naive is None:
+        return None
+
+    # Interpretamos el naive como hora local
+    dt_local_aware = dt_local_naive.replace(tzinfo=TZ_LOCAL)
+    dt_utc_aware = dt_local_aware.astimezone(timezone.utc)
+    return dt_utc_aware.replace(tzinfo=None)
+
+# ======================================================
+
+app = Flask(__name__)
+app.jinja_env.filters["to_local"] = to_local
 # SECRET_KEY configurable por entorno (para cada instancia).
 app.config["SECRET_KEY"] = os.getenv(
     "SECRET_KEY",
@@ -73,7 +105,6 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
 
-app.jinja_env.filters["to_local"] = to_local
 
 # ======================================================
 # Logging a fichero en producción
@@ -269,38 +300,6 @@ class UserScheduleSettings(db.Model):
         "User",
         backref=db.backref("schedule_settings", uselist=False),
     )
-
-def to_local(dt_utc_naive):
-    """
-    Convierte un datetime naive guardado en BD (interpretado como UTC)
-    a hora local Europe/Madrid (con soporte automático de cambio horario).
-    Devuelve un datetime aware en TZ_LOCAL.
-    """
-    if dt_utc_naive is None:
-        return None
-    if dt_utc_naive.tzinfo is not None:
-        # Si por lo que sea ya viniera con tzinfo, lo tratamos como UTC
-        dt_aware_utc = dt_utc_naive.astimezone(timezone.utc)
-    else:
-        dt_aware_utc = dt_utc_naive.replace(tzinfo=timezone.utc)
-
-    return dt_aware_utc.astimezone(TZ_LOCAL)
-
-def local_to_utc_naive(dt_local_naive):
-    """
-    Convierte un datetime naive de la hora local Europe/Madrid
-    a un datetime naive en UTC para guardar en BD.
-    Soporta cambios horario de verano/invierno.
-    """
-    if dt_local_naive is None:
-        return None
-
-    # Interpretamos el datetime sin tz como hora local Europe/Madrid
-    dt_local_aware = dt_local_naive.replace(tzinfo=TZ_LOCAL)
-
-    # Lo pasamos a UTC y lo volvemos a dejar naive (sin tzinfo) para la BD
-    dt_utc_aware = dt_local_aware.astimezone(timezone.utc)
-    return dt_utc_aware.replace(tzinfo=None)
 
 # ======================================================
 # Carga de usuario para Flask-Login
