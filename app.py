@@ -475,7 +475,7 @@ def index():
     hoy = datetime.now().date()
     schedule = obtener_horario_aplicable(current_user, hoy)
     tiene_descanso = False
-    descanso_es_flexible = False  # NUEVO: solo True si el descanso de hoy es "flexible"
+    descanso_es_flexible = False  # NUEVO
 
     if schedule:
         if schedule.use_per_day:
@@ -563,6 +563,7 @@ def index():
         bloquear_entrada=bloquear_entrada,
         bloquear_salida=bloquear_salida,
         tiene_descanso=tiene_descanso,
+        descanso_es_flexible=descanso_es_flexible,  # NUEVO
         descanso_en_curso=descanso_en_curso,
         bloquear_descanso=bloquear_descanso,
     )
@@ -1982,7 +1983,9 @@ def fichar():
                 .order_by(Registro.momento.desc())
                 .first()
             )
+
             if ultimo_inicio:
+                # ¿Hay un descanso_fin que cierre ese inicio?
                 fin_posterior = (
                     Registro.query
                     .filter(
@@ -1992,7 +1995,22 @@ def fichar():
                     )
                     .first()
                 )
-                if not fin_posterior:
+
+                # ¿Hay una salida posterior a ese descanso_inicio?
+                salida_posterior = (
+                    Registro.query
+                    .filter(
+                        Registro.usuario_id == current_user.id,
+                        Registro.accion == "salida",
+                        Registro.momento > ultimo_inicio.momento,
+                    )
+                    .first()
+                )
+
+                # Solo consideramos "descanso en curso" si:
+                #   - NO hay descanso_fin posterior
+                #   - Y NO hay salida posterior (la salida cierra también el descanso)
+                if not fin_posterior and not salida_posterior:
                     flash("Ya tienes un descanso en curso.", "error")
                     return redirect(url_for("index"))
 
@@ -2008,6 +2026,7 @@ def fichar():
                 flash("No hay ningún descanso en curso que terminar.", "error")
                 return redirect(url_for("index"))
 
+            # ¿Hay un descanso_fin posterior a ese inicio?
             fin_posterior = (
                 Registro.query
                 .filter(
@@ -2017,7 +2036,21 @@ def fichar():
                 )
                 .first()
             )
-            if fin_posterior:
+
+            # ¿Hay una salida posterior a ese inicio?
+            salida_posterior = (
+                Registro.query
+                .filter(
+                    Registro.usuario_id == current_user.id,
+                    Registro.accion == "salida",
+                    Registro.momento > ultimo_inicio.momento,
+                )
+                .first()
+            )
+
+            # Si hay fin posterior, ya se cerró el descanso.
+            # Si hay salida posterior, consideramos que la jornada (y el descanso) han terminado.
+            if fin_posterior or salida_posterior:
                 flash("No hay ningún descanso en curso que terminar.", "error")
                 return redirect(url_for("index"))
 
