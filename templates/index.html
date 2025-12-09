@@ -81,8 +81,8 @@
               Fichar SALIDA
             </button>
 
-            {# Botón DESCANSO (inicio / fin), solo si el horario tiene descanso configurado #}
-            {% if tiene_descanso %}
+            {# Botón DESCANSO (inicio / fin) SOLO si el horario de hoy tiene descanso FLEXIBLE #}
+            {% if tiene_descanso and descanso_es_flexible %}
               <button type="button"
                       class="btn btn-warning btn-lg
                              {% if not tiene_ubicaciones or bloquear_descanso %}btn-soft-disabled{% endif %}"

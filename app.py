@@ -475,16 +475,22 @@ def index():
     hoy = datetime.now().date()
     schedule = obtener_horario_aplicable(current_user, hoy)
     tiene_descanso = False
+    descanso_es_flexible = False  # NUEVO: solo True si el descanso de hoy es "flexible"
 
     if schedule:
         if schedule.use_per_day:
             dow = hoy.weekday()
             dia = next((d for d in schedule.days if d.day_of_week == dow), None)
-            if dia and dia.break_type in ("fixed", "flexible"):
-                tiene_descanso = True
+            if dia:
+                if dia.break_type in ("fixed", "flexible"):
+                    tiene_descanso = True
+                if dia.break_type == "flexible":
+                    descanso_es_flexible = True
         else:
             if schedule.break_type in ("fixed", "flexible"):
                 tiene_descanso = True
+            if schedule.break_type == "flexible":
+                descanso_es_flexible = True
 
     # --- ¿Hay entrada abierta? (para habilitar descanso) ---
     ultimo_entrada = (
@@ -539,7 +545,10 @@ def index():
                 descanso_en_curso = True
 
     # --- Bloqueo del botón de descanso ---
-    if not entrada_abierta:
+    # Solo permitimos el botón si:
+    #  - hay una entrada abierta
+    #  - el descanso para hoy es FLEXIBLE
+    if (not entrada_abierta) or (not descanso_es_flexible):
         bloquear_descanso = True
     else:
         bloquear_descanso = False
@@ -1921,6 +1930,30 @@ def fichar():
     if accion not in ("entrada", "salida", "descanso_inicio", "descanso_fin"):
         flash("Acción no válida", "error")
         return redirect(url_for("index"))
+
+    # === Bloque que impide descanso manual si el usuario tiene descanso FIJO hoy ===
+    if accion in ("descanso_inicio", "descanso_fin"):
+        hoy = datetime.now().date()
+        schedule = obtener_horario_aplicable(current_user, hoy)
+
+        descanso_fijo_hoy = False
+        if schedule:
+            if schedule.use_per_day:
+                dow = hoy.weekday()
+                dia = next((d for d in schedule.days if d.day_of_week == dow), None)
+                if dia and dia.break_type == "fixed":
+                    descanso_fijo_hoy = True
+            else:
+                if schedule.break_type == "fixed":
+                    descanso_fijo_hoy = True
+
+        if descanso_fijo_hoy:
+            flash(
+                "Tu horario tiene un descanso fijo configurado. No puedes registrar descansos manuales.",
+                "error",
+            )
+            return redirect(url_for("index"))
+    # === FIN bloque descanso fijo ===
 
     ultimo_registro = (
         Registro.query.filter_by(usuario_id=current_user.id)
