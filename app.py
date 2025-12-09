@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, date, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import os
 import logging
@@ -36,6 +37,9 @@ from types import SimpleNamespace
 
 app = Flask(__name__)
 
+# Zona horaria local de referencia
+TZ_LOCAL = ZoneInfo("Europe/Madrid")
+
 # SECRET_KEY configurable por entorno (para cada instancia).
 app.config["SECRET_KEY"] = os.getenv(
     "SECRET_KEY",
@@ -69,6 +73,7 @@ login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
 
+app.jinja_env.filters["to_local"] = to_local
 
 # ======================================================
 # Logging a fichero en producción
@@ -264,6 +269,33 @@ class UserScheduleSettings(db.Model):
         "User",
         backref=db.backref("schedule_settings", uselist=False),
     )
+
+def to_local(dt: datetime | None) -> datetime | None:
+    """
+    Convierte un datetime (guardado en UTC naive) a hora local Europe/Madrid.
+    - Si dt es None -> None.
+    - Si dt es naive -> se asume que está en UTC.
+    - Si dt ya tiene tzinfo -> se respeta y se convierte igualmente.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(TZ_LOCAL)
+
+
+def local_to_utc_naive(dt_local: datetime | None) -> datetime | None:
+    """
+    Convierte un datetime local naive (Europe/Madrid) a UTC naive
+    para guardar en BD.
+    """
+    if dt_local is None:
+        return None
+    if dt_local.tzinfo is None:
+        dt_local = dt_local.replace(tzinfo=TZ_LOCAL)
+    dt_utc = dt_local.astimezone(timezone.utc)
+    # Guardamos naive en BD, pero semánticamente es UTC
+    return dt_utc.replace(tzinfo=None)
 
 # ======================================================
 # Carga de usuario para Flask-Login
@@ -2279,40 +2311,46 @@ def admin_registros():
         if tipo_periodo == "rango":
             if fecha_desde:
                 try:
-                    dt_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
-                    dt_desde = dt_desde.replace(
+                    dt_desde_local = datetime.strptime(fecha_desde, "%Y-%m-%d")
+                    dt_desde_local = dt_desde_local.replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
-                    query = query.filter(Registro.momento >= dt_desde)
+                    dt_desde_utc = local_to_utc_naive(dt_desde_local)
+                    query = query.filter(Registro.momento >= dt_desde_utc)
                 except ValueError:
                     flash("Fecha 'desde' no válida.", "error")
 
             if fecha_hasta:
                 try:
-                    dt_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
-                    dt_hasta = dt_hasta.replace(
+                    dt_hasta_local = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                    dt_hasta_local = dt_hasta_local.replace(
                         hour=23,
                         minute=59,
                         second=59,
                         microsecond=999999,
                     )
-                    query = query.filter(Registro.momento <= dt_hasta)
+                    dt_hasta_utc = local_to_utc_naive(dt_hasta_local)
+                    query = query.filter(Registro.momento <= dt_hasta_utc)
                 except ValueError:
                     flash("Fecha 'hasta' no válida.", "error")
 
         elif tipo_periodo == "semanal":
             if fecha_semana:
                 try:
-                    start_of_week = datetime.strptime(fecha_semana, "%Y-%m-%d")
-                    start_of_week = start_of_week.replace(
+                    start_of_week_local = datetime.strptime(fecha_semana, "%Y-%m-%d")
+                    start_of_week_local = start_of_week_local.replace(
                         hour=0, minute=0, second=0, microsecond=0
                     )
-                    end_of_week = start_of_week + timedelta(
+                    end_of_week_local = start_of_week_local + timedelta(
                         days=6, hours=23, minutes=59, seconds=59
                     )
+
+                    start_of_week_utc = local_to_utc_naive(start_of_week_local)
+                    end_of_week_utc = local_to_utc_naive(end_of_week_local)
+
                     query = query.filter(
-                        Registro.momento >= start_of_week,
-                        Registro.momento <= end_of_week,
+                        Registro.momento >= start_of_week_utc,
+                        Registro.momento <= end_of_week_utc,
                     )
                 except ValueError:
                     flash("Fecha de semana no válida.", "error")
@@ -2320,20 +2358,22 @@ def admin_registros():
         elif tipo_periodo == "mensual":
             if mes:
                 try:
-                    hoy = datetime.today()
-                    year = hoy.year
-                    start_of_month = datetime(year, mes, 1, 0, 0, 0)
+                    hoy_local = datetime.now(TZ_LOCAL)
+                    year = hoy_local.year
 
+                    start_of_month_local = datetime(year, mes, 1, 0, 0, 0)
                     if mes == 12:
-                        next_month = datetime(year + 1, 1, 1, 0, 0, 0)
+                        next_month_local = datetime(year + 1, 1, 1, 0, 0, 0)
                     else:
-                        next_month = datetime(year, mes + 1, 1, 0, 0, 0)
+                        next_month_local = datetime(year, mes + 1, 1, 0, 0, 0)
 
-                    end_of_month = next_month - timedelta(seconds=1)
+                    start_of_month_utc = local_to_utc_naive(start_of_month_local)
+                    next_month_utc = local_to_utc_naive(next_month_local)
+                    end_of_month_utc = next_month_utc - timedelta(seconds=1)
 
                     query = query.filter(
-                        Registro.momento >= start_of_month,
-                        Registro.momento <= end_of_month,
+                        Registro.momento >= start_of_month_utc,
+                        Registro.momento <= end_of_month_utc,
                     )
                 except ValueError:
                     flash("Mes no válido.", "error")
@@ -2496,10 +2536,12 @@ def editar_registro(registro_id):
         entrada_lon_str = request.form.get("entrada_longitude", "").strip()
 
         entrada = Registro.query.get(int(entrada_id_str)) if entrada_id_str else None
+        entrada_momento = None  # siempre UTC naive si se rellena
 
         if entrada_momento_str:
             try:
-                entrada_momento = datetime.strptime(
+                # Hora introducida en el formulario: hora local Europe/Madrid
+                entrada_local = datetime.strptime(
                     entrada_momento_str, "%Y-%m-%dT%H:%M"
                 )
             except (TypeError, ValueError):
@@ -2512,6 +2554,9 @@ def editar_registro(registro_id):
             except ValueError:
                 flash("Latitud/longitud de entrada no válidas.", "error")
                 return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            # Convertimos de hora local -> UTC naive para guardar en BD
+            entrada_momento = local_to_utc_naive(entrada_local)
 
             if entrada:
                 # Auditoría de la entrada
@@ -2552,10 +2597,12 @@ def editar_registro(registro_id):
         salida_lon_str = request.form.get("salida_longitude", "").strip()
 
         salida = Registro.query.get(int(salida_id_str)) if salida_id_str else None
+        salida_momento = None  # siempre UTC naive si se rellena
 
         if salida_momento_str:
             try:
-                salida_momento = datetime.strptime(
+                # Hora introducida en el formulario: hora local Europe/Madrid
+                salida_local = datetime.strptime(
                     salida_momento_str, "%Y-%m-%dT%H:%M"
                 )
             except (TypeError, ValueError):
@@ -2568,6 +2615,9 @@ def editar_registro(registro_id):
             except ValueError:
                 flash("Latitud/longitud de salida no válidas.", "error")
                 return redirect(url_for("editar_registro", registro_id=registro_id))
+
+            # Convertimos de hora local -> UTC naive para guardar
+            salida_momento = local_to_utc_naive(salida_local)
 
             if salida:
                 # Auditoría de la salida
@@ -2619,8 +2669,7 @@ def editar_registro(registro_id):
 
         # --------- AJUSTE DEL DESCANSO SEGÚN EL FORMULARIO ---------
         # Solo tiene sentido si hay entrada y salida
-        descanso_str = request.form.get("descanso_val") or request.form.get("descanso") or ""
-        descanso_str = descanso_str.strip()
+        descanso_str = request.form.get("descanso_manual", "").strip()
 
         if entrada_m and salida_m and descanso_str:
             # Formato esperado: "HH:MM"
@@ -2729,12 +2778,16 @@ def editar_registro(registro_id):
     entrada = intervalo.entrada
     salida = intervalo.salida
 
-    entrada_momento_val = (
-        entrada.momento.strftime("%Y-%m-%dT%H:%M") if entrada and entrada.momento else ""
-    )
-    salida_momento_val = (
-        salida.momento.strftime("%Y-%m-%dT%H:%M") if salida and salida.momento else ""
-    )
+    # Convertimos a hora local para el input datetime-local
+    entrada_momento_val = ""
+    if entrada and entrada.momento:
+        entrada_local = to_local(entrada.momento)
+        entrada_momento_val = entrada_local.strftime("%Y-%m-%dT%H:%M")
+
+    salida_momento_val = ""
+    if salida and salida.momento:
+        salida_local = to_local(salida.momento)
+        salida_momento_val = salida_local.strftime("%Y-%m-%dT%H:%M")
 
     entrada_lat = f"{entrada.latitude:.6f}" if entrada and entrada.latitude is not None else ""
     entrada_lon = f"{entrada.longitude:.6f}" if entrada and entrada.longitude is not None else ""

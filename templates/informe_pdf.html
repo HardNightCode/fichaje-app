@@ -85,14 +85,14 @@
                     <td>{{ it.usuario.username }}</td>
                     <td>
                         {% if it.entrada_momento %}
-                            {{ it.entrada_momento.strftime("%H:%M %d/%m/%Y") }}
+                            {{ (it.entrada_momento|to_local).strftime("%H:%M %d/%m/%Y") }}
                         {% else %}
                             Sin entrada
                         {% endif %}
                     </td>
                     <td>
                         {% if it.salida_momento %}
-                            {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
+                            {{ (it.salida_momento|to_local).strftime("%H:%M %d/%m/%Y") }}
                         {% else %}
                             Sin salida
                         {% endif %}
