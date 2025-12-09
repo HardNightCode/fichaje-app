@@ -264,7 +264,7 @@
     );
   }
 
-  // Actualizar en tiempo real los descansos en curso (acumulando segmentos)
+  // Actualizar en tiempo real los descansos en curso (acumulando segmentos, corrigiendo UTC)
   document.addEventListener('DOMContentLoaded', function () {
     const elems = document.querySelectorAll('.descanso-en-curso');
     if (!elems.length) return;
@@ -272,13 +272,24 @@
     function actualizarDescansos() {
       const ahora = new Date();
       elems.forEach(function (el) {
-        const iso = el.getAttribute('data-descanso-inicio');
-        if (!iso) return;
+        const isoRaw = el.getAttribute('data-descanso-inicio');
+        if (!isoRaw) return;
+
+        // isoRaw viene de datetime.utcnow().isoformat(), sin zona horaria y con microsegundos.
+        // Lo normalizamos a un ISO UTC sin microsegundos: "YYYY-MM-DDTHH:MM:SSZ"
+        let iso = isoRaw;
+        const dotIndex = iso.indexOf('.');
+        if (dotIndex !== -1) {
+          iso = iso.substring(0, dotIndex);  // quitamos microsegundos
+        }
+        iso = iso + 'Z';  // Indicamos que es UTC
 
         const inicio = new Date(iso);
-        const baseSeg = parseInt(el.getAttribute('data-descanso-base') || '0', 10);
+        if (isNaN(inicio.getTime())) return;
 
-        const diffMs = ahora - inicio;
+        const baseSeg = parseInt(el.getAttribute('data-descanso-base') || '0', 10) || 0;
+
+        const diffMs = ahora.getTime() - inicio.getTime();
         if (diffMs < 0) return;
 
         const diffSeconds = Math.floor(diffMs / 1000);
