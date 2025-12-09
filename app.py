@@ -408,20 +408,34 @@ def index():
     # Intervalos Entrada/Salida SOLO del usuario actual
     intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
 
-    # --- Anotar descanso por intervalo ---
+    # --- Anotar descanso por intervalo (incluyendo acumulado para el contador en vivo) ---
     for it in intervalos_usuario:
         if it.usuario and it.entrada_momento:
+            ahora_ref = datetime.utcnow()
             descanso_td, en_curso, inicio = calcular_descanso_intervalo_para_usuario(
                 it.usuario.id,
                 it.entrada_momento,
                 it.salida_momento,
+                ahora=ahora_ref,
             )
+
+            # Parte ya "cerrada" del descanso (descansos previos, sin contar el tramo abierto)
+            base_segundos = 0
+            if en_curso and inicio:
+                # total = descansos cerrados + abierto hasta ahora_ref
+                abierto = max(ahora_ref - inicio, timedelta(0))
+                base_td = descanso_td - abierto
+                if base_td.total_seconds() < 0:
+                    base_td = timedelta(0)
+                base_segundos = int(base_td.total_seconds())
         else:
             descanso_td, en_curso, inicio = timedelta(0), False, None
+            base_segundos = 0
 
         it.descanso_td = descanso_td
         it.descanso_en_curso = en_curso
         it.descanso_inicio_iso = inicio.isoformat() if inicio else ""
+        it.descanso_base_segundos = base_segundos  # NUEVO: acumulado previo al tramo abierto
 
         if en_curso:
             it.descanso_label = "Descansando"
@@ -1431,21 +1445,30 @@ def calcular_descanso_intervalos(intervalos, registros, ahora=None):
         else:
             it.descanso_label = "Sin descanso"
 
-def calcular_descanso_intervalo_para_usuario(usuario_id, entrada_momento, salida_momento=None):
+def calcular_descanso_intervalo_para_usuario(
+    usuario_id,
+    entrada_momento,
+    salida_momento=None,
+    ahora=None,
+):
     """
     Calcula el tiempo de descanso real dentro de un intervalo [entrada_momento, salida_momento]
     usando registros 'descanso_inicio' / 'descanso_fin' del usuario.
 
     Devuelve:
-      - total_descanso: timedelta
+      - total_descanso: timedelta (todos los descansos cerrados + el abierto hasta 'ahora')
       - descanso_en_curso: bool (True solo si hay descanso abierto Y el intervalo no tiene salida)
       - inicio_descanso_en_curso: datetime | None
     """
     if entrada_momento is None:
         return timedelta(0), False, None
 
+    # Momento de referencia coherente para todos los cálculos
+    if ahora is None:
+        ahora = datetime.utcnow()
+
     if salida_momento is None:
-        limite_superior = datetime.utcnow()
+        limite_superior = ahora
     else:
         limite_superior = salida_momento
 
@@ -1478,12 +1501,11 @@ def calcular_descanso_intervalo_para_usuario(usuario_id, entrada_momento, salida
                 inicio_actual = None
 
     # Si queda un descanso "abierto":
-    # - Si NO hay salida -> en curso hasta ahora.
-    # - Si hay salida     -> cerrado en la salida, NO en curso.
+    # - Si NO hay salida -> en curso hasta 'ahora'.
+    # - Si hay salida     -> cerrado en la salida, pero NO se marca en curso.
     if inicio_actual is not None:
         if salida_momento is None:
             # Intervalo abierto: descanso realmente en curso
-            ahora = datetime.utcnow()
             if ahora > inicio_actual:
                 total += (ahora - inicio_actual)
             descanso_en_curso = True

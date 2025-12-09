@@ -157,11 +157,11 @@
                       <span class="text-muted">Sin entrada</span>
                     {% endif %}
                   </td>
-
                   <td>
                     {% if it.descanso_en_curso %}
                       <span class="text-warning descanso-en-curso"
-                            data-descanso-inicio="{{ it.descanso_inicio_iso }}">
+                            data-descanso-inicio="{{ it.descanso_inicio_iso }}"
+                            data-descanso-base="{{ it.descanso_base_segundos | default(0) }}">
                         Descansando ·
                         <span class="descanso-tiempo">--:--:--</span>
                       </span>
@@ -169,7 +169,6 @@
                       {{ it.descanso_label or "Sin descanso" }}
                     {% endif %}
                   </td>
-
                   <td>
                     {% if it.salida_momento %}
                       {{ it.salida_momento.strftime("%H:%M %d/%m/%Y") }}
@@ -265,7 +264,7 @@
     );
   }
 
-  // Actualizar en tiempo real los descansos en curso
+  // Actualizar en tiempo real los descansos en curso (acumulando segmentos)
   document.addEventListener('DOMContentLoaded', function () {
     const elems = document.querySelectorAll('.descanso-en-curso');
     if (!elems.length) return;
@@ -275,11 +274,17 @@
       elems.forEach(function (el) {
         const iso = el.getAttribute('data-descanso-inicio');
         if (!iso) return;
+
         const inicio = new Date(iso);
+        const baseSeg = parseInt(el.getAttribute('data-descanso-base') || '0', 10);
+
         const diffMs = ahora - inicio;
         if (diffMs < 0) return;
 
-        const totalSeconds = Math.floor(diffMs / 1000);
+        const diffSeconds = Math.floor(diffMs / 1000);
+        let totalSeconds = baseSeg + diffSeconds;
+        if (totalSeconds < 0) totalSeconds = 0;
+
         const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
         const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
         const s = String(totalSeconds % 60).padStart(2, '0');
