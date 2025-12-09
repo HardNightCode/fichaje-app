@@ -270,32 +270,37 @@ class UserScheduleSettings(db.Model):
         backref=db.backref("schedule_settings", uselist=False),
     )
 
-def to_local(dt: datetime | None) -> datetime | None:
+def to_local(dt_utc_naive):
     """
-    Convierte un datetime (guardado en UTC naive) a hora local Europe/Madrid.
-    - Si dt es None -> None.
-    - Si dt es naive -> se asume que está en UTC.
-    - Si dt ya tiene tzinfo -> se respeta y se convierte igualmente.
+    Convierte un datetime naive guardado en BD (interpretado como UTC)
+    a hora local Europe/Madrid (con soporte automático de cambio horario).
+    Devuelve un datetime aware en TZ_LOCAL.
     """
-    if dt is None:
+    if dt_utc_naive is None:
         return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(TZ_LOCAL)
+    if dt_utc_naive.tzinfo is not None:
+        # Si por lo que sea ya viniera con tzinfo, lo tratamos como UTC
+        dt_aware_utc = dt_utc_naive.astimezone(timezone.utc)
+    else:
+        dt_aware_utc = dt_utc_naive.replace(tzinfo=timezone.utc)
 
+    return dt_aware_utc.astimezone(TZ_LOCAL)
 
-def local_to_utc_naive(dt_local: datetime | None) -> datetime | None:
+def local_to_utc_naive(dt_local_naive):
     """
-    Convierte un datetime local naive (Europe/Madrid) a UTC naive
-    para guardar en BD.
+    Convierte un datetime naive de la hora local Europe/Madrid
+    a un datetime naive en UTC para guardar en BD.
+    Soporta cambios horario de verano/invierno.
     """
-    if dt_local is None:
+    if dt_local_naive is None:
         return None
-    if dt_local.tzinfo is None:
-        dt_local = dt_local.replace(tzinfo=TZ_LOCAL)
-    dt_utc = dt_local.astimezone(timezone.utc)
-    # Guardamos naive en BD, pero semánticamente es UTC
-    return dt_utc.replace(tzinfo=None)
+
+    # Interpretamos el datetime sin tz como hora local Europe/Madrid
+    dt_local_aware = dt_local_naive.replace(tzinfo=TZ_LOCAL)
+
+    # Lo pasamos a UTC y lo volvemos a dejar naive (sin tzinfo) para la BD
+    dt_utc_aware = dt_local_aware.astimezone(timezone.utc)
+    return dt_utc_aware.replace(tzinfo=None)
 
 # ======================================================
 # Carga de usuario para Flask-Login
