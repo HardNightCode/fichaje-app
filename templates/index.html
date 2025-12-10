@@ -47,42 +47,6 @@
   </div>
 </div>
 
-<div class="row g-3 align-items-stretch mb-4">
-  <div class="col-md-6 col-lg-4">
-    <div class="stat-card subtle-border h-100">
-      <div>
-        <div class="label">Tiempo registrado hoy</div>
-        <div class="value">{{ resumen_horas if resumen_horas and resumen_horas != "00:00" else "--:--" }}</div>
-      </div>
-      <div class="stat-icon bg-primary-soft text-primary-emphasis">
-        <i class="bi bi-clock-history"></i>
-      </div>
-    </div>
-  </div>
-  <div class="col-md-6 col-lg-4">
-    <div class="stat-card subtle-border h-100">
-      <div>
-        <div class="label">Ubicaciones asignadas</div>
-        <div class="value">{{ 'Sí' if tiene_ubicaciones else 'Ninguna' }}</div>
-      </div>
-      <div class="stat-icon bg-success-soft text-success">
-        <i class="bi bi-geo-alt"></i>
-      </div>
-    </div>
-  </div>
-  <div class="col-lg-4 d-none d-lg-block">
-    <div class="stat-card subtle-border h-100">
-      <div>
-        <div class="label">Cuenta</div>
-        <div class="value text-capitalize">{{ current_user.role }}</div>
-      </div>
-      <div class="stat-icon bg-secondary-soft text-secondary">
-        <i class="bi bi-person-check"></i>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div class="row justify-content-center">
   <!-- Columna izquierda: fichar + resumen -->
   <div class="col-lg-4 col-md-6 mb-4">
