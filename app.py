@@ -1335,8 +1335,33 @@ def admin_kiosko_detalle(kiosk_id):
     # Cuentas de kiosko disponibles para asociar a este kiosko
     cuentas_kiosko = User.query.filter_by(role="kiosko").order_by(User.username).all()
 
+    # Posibles propietarios (admin o kiosko_admin)
+    admins_kiosko = (
+        User.query
+        .filter(User.role.in_(["admin", "kiosko_admin"]))
+        .order_by(User.username)
+        .all()
+    )
+
     if request.method == "POST":
-        # Actualizar cuenta de kiosko asociada
+        # --- Actualizar propietario del kiosko (solo admin global puede cambiarlo) ---
+        if current_user.role == "admin":
+            owner_id_str = request.form.get("owner_id", "").strip()
+            if owner_id_str:
+                try:
+                    owner_id = int(owner_id_str)
+                    owner = User.query.get(owner_id)
+                    if owner and owner.role in ("admin", "kiosko_admin"):
+                        kiosk.owner_id = owner.id
+                    else:
+                        flash("El propietario seleccionado no es válido.", "error")
+                        return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+                except ValueError:
+                    flash("Propietario seleccionado no válido.", "error")
+                    return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+        # Si no se envía owner_id o no es admin, se mantiene el owner actual
+
+        # --- Actualizar cuenta de kiosko asociada ---
         account_id_str = request.form.get("kiosk_account_id", "").strip()
         if account_id_str:
             try:
@@ -1353,7 +1378,7 @@ def admin_kiosko_detalle(kiosk_id):
         else:
             kiosk.kiosk_account_id = None
 
-        # Gestionar usuarios asignados al kiosko
+        # --- Gestionar usuarios asignados al kiosko ---
         for u in usuarios:
             enabled = request.form.get(f"user_{u.id}_enabled") == "on"
             pin = (request.form.get(f"user_{u.id}_pin") or "").strip()
@@ -1362,12 +1387,12 @@ def admin_kiosko_detalle(kiosk_id):
             ku = kiosk_users_map.get(u.id)
 
             if enabled:
-                # Requerir PIN de 4 dígitos
-                if not (pin and pin.isdigit() and len(pin) == 4):
-                    flash(f"El usuario {u.username} debe tener un PIN de 4 dígitos.", "error")
-                    return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
-
+                # NUEVO: si ya existe, el PIN solo se cambia si se rellena
                 if ku is None:
+                    # Requerir PIN de 4 dígitos para nuevo vínculo
+                    if not (pin and pin.isdigit() and len(pin) == 4):
+                        flash(f"El usuario {u.username} debe tener un PIN de 4 dígitos.", "error")
+                        return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
                     ku = KioskUser(
                         kiosk_id=kiosk.id,
                         user_id=u.id,
@@ -1376,7 +1401,13 @@ def admin_kiosko_detalle(kiosk_id):
                     )
                     db.session.add(ku)
                 else:
-                    ku.pin_hash = generate_password_hash(pin)
+                    # Ya estaba asignado: si se proporciona PIN, lo validamos y lo cambiamos
+                    if pin:
+                        if not (pin.isdigit() and len(pin) == 4):
+                            flash(f"El usuario {u.username} debe tener un PIN de 4 dígitos.", "error")
+                            return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+                        ku.pin_hash = generate_password_hash(pin)
+                    # Siempre actualizamos el flag de cierre de sesión
                     ku.close_session_after_punch = close_flag
             else:
                 # Desasignar usuario del kiosko
@@ -1393,6 +1424,7 @@ def admin_kiosko_detalle(kiosk_id):
         usuarios=usuarios,
         kiosk_users_map=kiosk_users_map,
         cuentas_kiosko=cuentas_kiosko,
+        admins_kiosko=admins_kiosko,
     )
 
 @app.route("/admin/usuarios/<int:user_id>/ficha", methods=["GET", "POST"])
