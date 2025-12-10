@@ -3,35 +3,48 @@
 {% block title %}Inicio - Sistema de fichaje{% endblock %}
 
 {% block content %}
-<style>
-  .btn-soft-disabled {
-    opacity: 0.6;
-    pointer-events: none;
-    filter: grayscale(0.2);
-  }
-
-  .card-elevated {
-    border-radius: 0.75rem;
-    box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.08);
-  }
-
-  .fichaje-header {
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    font-size: 0.8rem;
-  }
-
-  .badge-estado {
-    font-size: 0.75rem;
-  }
-</style>
-
-<div class="text-center mb-4">
-  <h1 class="mb-1">Panel de fichaje</h1>
-  <p class="text-muted mb-0">
-    Registra tus entradas y salidas y consulta tus últimos fichajes.
+<div class="page-hero">
+  <span class="badge rounded-pill bg-primary-soft text-primary-emphasis mb-3">Productividad en orden</span>
+  <h1 class="mb-2">Panel de fichaje</h1>
+  <p class="mb-0 panel-subtitle">
+    Controla tus jornadas con un entorno claro, sin ruido visual y con énfasis en la precisión de los registros.
   </p>
+</div>
+
+<div class="row g-3 align-items-stretch mb-4">
+  <div class="col-md-6 col-lg-4">
+    <div class="stat-card subtle-border h-100">
+      <div>
+        <div class="label">Tiempo registrado hoy</div>
+        <div class="value">{{ resumen_horas if resumen_horas and resumen_horas != "00:00" else "--:--" }}</div>
+      </div>
+      <div class="stat-icon bg-primary-soft text-primary-emphasis">
+        <i class="bi bi-clock-history"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6 col-lg-4">
+    <div class="stat-card subtle-border h-100">
+      <div>
+        <div class="label">Ubicaciones asignadas</div>
+        <div class="value">{{ 'Sí' if tiene_ubicaciones else 'Ninguna' }}</div>
+      </div>
+      <div class="stat-icon bg-success-soft text-success">
+        <i class="bi bi-geo-alt"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4 d-none d-lg-block">
+    <div class="stat-card subtle-border h-100">
+      <div>
+        <div class="label">Cuenta</div>
+        <div class="value text-capitalize">{{ current_user.role }}</div>
+      </div>
+      <div class="stat-icon bg-secondary-soft text-secondary">
+        <i class="bi bi-person-check"></i>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="row justify-content-center">
@@ -39,8 +52,8 @@
   <div class="col-lg-4 col-md-6 mb-4">
     <div class="card card-elevated mb-4">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span class="fichaje-header">Fichar</span>
-        <span class="badge bg-secondary badge-estado">
+        <span class="fichaje-header text-uppercase small">Fichar</span>
+        <span class="badge bg-secondary badge-estado text-uppercase">
           {{ current_user.username }}
         </span>
       </div>
@@ -58,8 +71,7 @@
           <input type="hidden" name="lon" id="lon">
 
           <p class="mb-3 text-muted">
-            Pulsa uno de los botones para registrar tu fichaje.
-            Se usará la ubicación actual de tu dispositivo.
+            Pulsa uno de los botones para registrar tu fichaje. Usaremos la ubicación actual de tu dispositivo para validar el punto de control.
           </p>
 
           <div class="d-grid gap-3">
@@ -99,9 +111,7 @@
 
           {% if tiene_flexible %}
             <p class="mt-3 text-muted small text-start">
-              Tienes activa una ubicación <strong>Flexible</strong>, por lo que
-              no se aplicará control de radio GPS, pero sí se registrarán tus
-              coordenadas.
+              Tienes activa una ubicación <strong>Flexible</strong>, por lo que no se aplicará control de radio GPS, pero sí se registrarán tus coordenadas para mantener trazabilidad.
             </p>
           {% endif %}
         </form>
@@ -109,8 +119,12 @@
     </div>
 
     <div class="card card-elevated">
-      <div class="card-header">
-        <span class="fichaje-header">Resumen de horas</span>
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <div>
+          <span class="fichaje-header text-uppercase small d-block">Resumen de horas</span>
+          <span class="panel-subtitle small">Control preciso de tu jornada</span>
+        </div>
+        <span class="badge bg-light text-dark border">Actualizado</span>
       </div>
       <div class="card-body text-center">
         {% if resumen_horas and resumen_horas != "00:00" %}
@@ -133,7 +147,10 @@
   <div class="col-lg-7 col-md-10">
     <div class="card card-elevated">
       <div class="card-header d-flex justify-content-between align-items-center">
-        <span class="fichaje-header">Tus fichajes recientes (intervalos)</span>
+        <div>
+          <span class="fichaje-header text-uppercase small d-block">Tus fichajes recientes</span>
+          <span class="panel-subtitle small">Intervalos registrados y ubicación asociada</span>
+        </div>
       </div>
       <div class="card-body p-0">
         {% if intervalos_usuario %}
