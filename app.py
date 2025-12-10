@@ -3239,22 +3239,34 @@ def generar_pdf(intervalos, tipo_periodo: str):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    # Si ya está autenticado, no tiene sentido volver a loguear
     if current_user.is_authenticated:
+        if current_user.role == "kiosko":
+            return redirect(url_for("kiosko_panel"))
         return redirect(url_for("index"))
 
     if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
 
         user = User.query.filter_by(username=username).first()
 
-        if user is None or not user.check_password(password):
-            flash("Usuario o contraseña incorrectos", "error")
-            return redirect(url_for("login"))
+        if user and user.check_password(password):
+            login_user(user)
+            flash("Sesión iniciada correctamente.", "success")
 
-        login_user(user)
-        flash("Has iniciado sesión correctamente", "success")
-        return redirect(url_for("index"))
+            # Si es cuenta de kiosko -> directo al panel de kiosko
+            if user.role == "kiosko":
+                return redirect(url_for("kiosko_panel"))
+
+            # Respetar "next" si viene de @login_required
+            next_page = request.args.get("next")
+            if next_page:
+                return redirect(next_page)
+
+            return redirect(url_for("index"))
+        else:
+            flash("Usuario o contraseña incorrectos.", "error")
 
     return render_template("login.html")
 

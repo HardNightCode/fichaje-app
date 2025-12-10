@@ -21,48 +21,57 @@
 
     <div class="collapse navbar-collapse" id="navbarNav">
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-        {% if current_user.is_authenticated %}
-          <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('index') }}">Inicio</a>
-          </li>
+          {% if current_user.is_authenticated %}
+              <!-- Inicio normal para todos los roles NO kiosko -->
+              {% if current_user.role != 'kiosko' %}
+              <li class="nav-item">
+                  <a class="nav-link" href="{{ url_for('index') }}">Inicio</a>
+              </li>
+              {% endif %}
 
-          {% if current_user.role == 'admin' %}
-          <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button"
-               data-bs-toggle="dropdown" aria-expanded="false">
-              Administración
-            </a>
-            <ul class="dropdown-menu" aria-labelledby="adminDropdown">
-              <li><a class="dropdown-item" href="{{ url_for('admin_registros') }}">Registros</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('admin_ubicaciones') }}">Ubicaciones</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('admin_usuarios') }}">Usuarios / ubicaciones</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('register') }}">Crear usuario</a></li>
+              {# Menú de administración clásico (incluye kioskos) #}
+              {% if current_user.role in ['admin', 'kiosko_admin'] %}
+              <li class="nav-item dropdown">
+                  <a class="nav-link dropdown-toggle" href="#" id="adminDropdown" role="button"
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                      Administración
+                  </a>
+                  <ul class="dropdown-menu" aria-labelledby="adminDropdown">
+                      <li><a class="dropdown-item" href="{{ url_for('admin_registros') }}">Registros</a></li>
+                      <li><a class="dropdown-item" href="{{ url_for('admin_usuarios') }}">Usuarios / ubicaciones</a></li>
+                      <li><a class="dropdown-item" href="{{ url_for('admin_usuarios_fichas') }}">Ficha usuarios</a></li>
+                      <li><a class="dropdown-item" href="{{ url_for('admin_horarios') }}">Horarios</a></li>
+                      <li><hr class="dropdown-divider"></li>
+                      <li><a class="dropdown-item" href="{{ url_for('admin_kioskos') }}">Kioskos</a></li>
+                  </ul>
+              </li>
+              {% endif %}
 
-              <li><hr class="dropdown-divider"></li>
+              {# Enlace directo al modo kiosko SOLO para la cuenta de kiosko #}
+              {% if current_user.role == 'kiosko' %}
+              <li class="nav-item">
+                  <a class="nav-link" href="{{ url_for('kiosko_panel') }}">Modo kiosko</a>
+              </li>
+              {% endif %}
 
-              <li><a class="dropdown-item" href="{{ url_for('admin_horarios') }}">Horarios</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('admin_usuarios_fichas') }}">Usuarios</a></li>
-            </ul>
-          </li>
           {% endif %}
-        {% endif %}
       </ul>
 
-      <ul class="navbar-nav">
-        {% if current_user.is_authenticated %}
+      <ul class="navbar-nav ms-auto">
+          {% if current_user.is_authenticated %}
           <li class="nav-item">
-            <span class="navbar-text me-3">
-              {{ current_user.username }} ({{ current_user.role }})
-            </span>
+              <span class="navbar-text me-2">
+                  {{ current_user.username }} ({{ current_user.role }})
+              </span>
           </li>
           <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('logout') }}">Cerrar sesión</a>
+              <a class="nav-link" href="{{ url_for('logout') }}">Cerrar sesión</a>
           </li>
-        {% else %}
+          {% else %}
           <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('login') }}">Iniciar sesión</a>
+              <a class="nav-link" href="{{ url_for('login') }}">Entrar</a>
           </li>
-        {% endif %}
+          {% endif %}
       </ul>
     </div>
   </div>
