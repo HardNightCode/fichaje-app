@@ -135,7 +135,10 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), default="empleado")  # 'admin' o 'empleado'
+    role = db.Column(db.String(20), default="empleado")  # 'admin', 'empleado', 'kiosko', 'kiosko_admin'
+
+    # NUEVO: obliga a cambiar la contraseña en el siguiente inicio de sesión
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
 
     # Relación antigua (ubicación única)
     location_id = db.Column(db.Integer, db.ForeignKey("location.id"), nullable=True)
@@ -1244,15 +1247,95 @@ def editar_horario(schedule_id):
     dias_map = {d.day_of_week: d for d in horario.days}
     return render_template("admin_horario_editar.html", horario=horario, dias_map=dias_map)
 
-@app.route("/admin/usuarios/fichas")
+@app.route("/admin/usuarios/fichas", methods=["GET", "POST"])
 @admin_required
 def admin_usuarios_fichas():
     """
     Lista de usuarios, con enlace a su ficha de configuración
-    (ubicaciones + horarios).
+    (ubicaciones + horarios) y gestión básica:
+      - cambiar rol
+      - eliminar usuario (con confirmación en el cliente)
+      - abrir modal para resetear contraseña
     """
     usuarios = User.query.order_by(User.username).all()
+
+    if request.method == "POST":
+        action = request.form.get("action")
+        user_id_str = request.form.get("user_id", "").strip()
+
+        try:
+            user_id = int(user_id_str)
+            user = User.query.get_or_404(user_id)
+        except (ValueError, TypeError):
+            flash("Usuario no válido.", "error")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        # Prohibimos que un admin se elimine a sí mismo, por seguridad básica
+        if action == "delete" and user.id == current_user.id:
+            flash("No puedes eliminar tu propio usuario.", "error")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        if action == "update_role":
+            nuevo_rol = request.form.get("role", "").strip()
+            if nuevo_rol not in ("admin", "empleado", "kiosko", "kiosko_admin"):
+                flash("Rol no válido.", "error")
+                return redirect(url_for("admin_usuarios_fichas"))
+
+            user.role = nuevo_rol
+            db.session.commit()
+            flash(f"Rol de {user.username} actualizado a {nuevo_rol}.", "success")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        elif action == "delete":
+            # Opcional: evitar borrar usuarios que sean owner/kiosk_account de algún kiosko
+            kiosko_vinculado = (
+                Kiosk.query
+                .filter(
+                    (Kiosk.owner_id == user.id) | (Kiosk.kiosk_account_id == user.id)
+                )
+                .first()
+            )
+            if kiosko_vinculado:
+                flash(
+                    "No puedes eliminar este usuario porque está vinculado a un kiosko "
+                    "(propietario o cuenta asociada).",
+                    "error",
+                )
+                return redirect(url_for("admin_usuarios_fichas"))
+
+            db.session.delete(user)
+            db.session.commit()
+            flash(f"Usuario {user.username} eliminado correctamente.", "success")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        # Cualquier otra acción vuelve a la lista
+        return redirect(url_for("admin_usuarios_fichas"))
+
     return render_template("admin_usuarios_fichas.html", usuarios=usuarios)
+
+@app.route("/admin/usuarios/<int:user_id>/reset_password", methods=["POST"])
+@admin_required
+def admin_reset_password(user_id):
+    """
+    Reinicia la contraseña de un usuario desde la administración.
+    Se llama desde el modal de 'resetear contraseña' en admin_usuarios_fichas.
+    """
+    user = User.query.get_or_404(user_id)
+
+    new_password = (request.form.get("new_password") or "").strip()
+    must_change = request.form.get("must_change_password") == "on"
+
+    if not new_password:
+        flash("La nueva contraseña no puede estar vacía.", "error")
+        return redirect(url_for("admin_usuarios_fichas"))
+
+    user.set_password(new_password)
+    user.must_change_password = must_change
+    db.session.commit()
+
+    flash(f"Contraseña de {user.username} reiniciada correctamente.", "success")
+    return redirect(url_for("admin_usuarios_fichas"))
+
 
 @app.route("/admin/kioskos", methods=["GET", "POST"])
 @kiosko_admin_required
@@ -2579,9 +2662,10 @@ def fichar():
 @admin_required
 def register():
     if request.method == "POST":
-        username = request.form.get("username")
-        password = request.form.get("password")
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
         role = request.form.get("role", "empleado")
+        must_change = request.form.get("must_change_password") == "on"
 
         if not username or not password:
             flash("Usuario y contraseña son obligatorios", "error")
@@ -2593,6 +2677,8 @@ def register():
 
         nuevo_usuario = User(username=username, role=role)
         nuevo_usuario.set_password(password)
+        nuevo_usuario.must_change_password = must_change
+
         db.session.add(nuevo_usuario)
         db.session.commit()
 
@@ -3273,6 +3359,10 @@ def generar_pdf(intervalos, tipo_periodo: str):
 def login():
     # Si ya está autenticado, no tiene sentido volver a loguear
     if current_user.is_authenticated:
+        # Si tiene cambio obligatorio pendiente, lo mandamos ahí
+        if getattr(current_user, "must_change_password", False):
+            return redirect(url_for("cambiar_password_obligatorio"))
+
         if current_user.role == "kiosko":
             return redirect(url_for("kiosko_panel"))
         return redirect(url_for("index"))
@@ -3286,6 +3376,11 @@ def login():
         if user and user.check_password(password):
             login_user(user)
             flash("Sesión iniciada correctamente.", "success")
+
+            # Si debe cambiar la contraseña, lo forzamos antes de entrar en la app
+            if getattr(user, "must_change_password", False):
+                flash("Debes cambiar tu contraseña antes de continuar.", "warning")
+                return redirect(url_for("cambiar_password_obligatorio"))
 
             # Si es cuenta de kiosko -> directo al panel de kiosko
             if user.role == "kiosko":
@@ -3301,6 +3396,35 @@ def login():
             flash("Usuario o contraseña incorrectos.", "error")
 
     return render_template("login.html")
+
+@app.route("/cambiar_password_obligatorio", methods=["GET", "POST"])
+@login_required
+def cambiar_password_obligatorio():
+    # Si el usuario no está marcado para cambio obligatorio, no tiene sentido estar aquí
+    if not current_user.must_change_password:
+        return redirect(url_for("index"))
+
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "").strip()
+        confirm_password = request.form.get("confirm_password", "").strip()
+
+        if not new_password:
+            flash("La nueva contraseña no puede estar vacía.", "error")
+            return redirect(url_for("cambiar_password_obligatorio"))
+
+        if new_password != confirm_password:
+            flash("Las contraseñas no coinciden.", "error")
+            return redirect(url_for("cambiar_password_obligatorio"))
+
+        current_user.set_password(new_password)
+        current_user.must_change_password = False
+        db.session.commit()
+
+        flash("Contraseña actualizada correctamente.", "success")
+        return redirect(url_for("index"))
+
+    return render_template("cambiar_password_obligatorio.html")
+
 
 @app.route("/logout")
 @login_required

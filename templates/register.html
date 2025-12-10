@@ -12,7 +12,7 @@
   </div>
 
   <div class="mb-3">
-    <label for="password" class="form-label">Contraseña</label>
+    <label for="password" class="form-label">Contraseña inicial</label>
     <input type="password" name="password" id="password" class="form-control" required>
   </div>
 
@@ -21,9 +21,16 @@
     <select name="role" id="role" class="form-select">
       <option value="empleado" selected>Empleado</option>
       <option value="kiosko">Kiosko (cuenta asociada para modo kiosko)</option>
-      <option value="kiosko_admin">Kiosko admin (administra uno o varios kioskos)</option>
+      <option value="kiosko_admin">Kiosko admin</option>
       <option value="admin">Administrador</option>
     </select>
+  </div>
+
+  <div class="mb-3 form-check">
+    <input type="checkbox" class="form-check-input" id="must_change_password" name="must_change_password">
+    <label class="form-check-label" for="must_change_password">
+      Requerir que el usuario cambie la contraseña al iniciar sesión
+    </label>
   </div>
 
   <button type="submit" class="btn btn-primary">Crear usuario</button>
