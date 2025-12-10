@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container mt-4">
+    <h1 class="mb-3">Kiosko: {{ kiosk.name }}</h1>
+
+    {# Mensajes flash #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-3">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <p class="text-muted">
+        {{ kiosk.description or "Sin descripción" }}<br>
+        <small>
+            Propietario: {{ kiosk.owner.username if kiosk.owner else "Sin asignar" }}
+        </small>
+    </p>
+
+    <form method="post" action="{{ url_for('admin_kiosko_detalle', kiosk_id=kiosk.id) }}">
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <label for="kiosk_account_id" class="form-label">
+                    Cuenta asociada al kiosko (usuario que se loguea en el dispositivo)
+                </label>
+                <select class="form-select" id="kiosk_account_id" name="kiosk_account_id">
+                    <option value="">-- Sin asociar --</option>
+                    {% for u in cuentas_kiosko %}
+                        <option value="{{ u.id }}"
+                            {% if kiosk.kiosk_account_id == u.id %}selected{% endif %}>
+                            {{ u.username }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <div class="form-text">
+                    Esta cuenta (rol <code>kiosko</code>) será la que quede iniciada en el dispositivo
+                    y verá la pantalla de fichaje en modo kiosko.
+                </div>
+            </div>
+        </div>
+
+        <hr>
+
+        <h4 class="mb-3">Usuarios asignados al kiosko</h4>
+        <p class="text-muted">
+            Marca los usuarios que pueden fichar en este kiosko, asígnales un PIN de 4 dígitos
+            y decide si su “sesión” visual debe cerrarse tras cada fichaje.
+        </p>
+
+        {% if usuarios %}
+            <div class="row row-cols-1 row-cols-md-3 g-3">
+                {% for u in usuarios %}
+                    {% set ku = kiosk_users_map.get(u.id) %}
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-body d-flex flex-column">
+                                <h5 class="card-title">{{ u.username }}</h5>
+
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="user_{{ u.id }}_enabled"
+                                           name="user_{{ u.id }}_enabled"
+                                           {% if ku %}checked{% endif %}>
+                                    <label class="form-check-label" for="user_{{ u.id }}_enabled">
+                                        Habilitado en este kiosko
+                                    </label>
+                                </div>
+
+                                <div class="mb-2">
+                                    <label for="user_{{ u.id }}_pin" class="form-label mb-1">
+                                        PIN (4 dígitos)
+                                    </label>
+                                    <input type="password"
+                                           class="form-control"
+                                           id="user_{{ u.id }}_pin"
+                                           name="user_{{ u.id }}_pin"
+                                           placeholder="{% if ku %}••••{% else %}0000{% endif %}">
+                                    <div class="form-text">
+                                        Se requiere para fichar en modo kiosko.
+                                    </div>
+                                </div>
+
+                                <div class="form-check mb-3">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="user_{{ u.id }}_close_session"
+                                           name="user_{{ u.id }}_close_session"
+                                           {% if ku and ku.close_session_after_punch %}checked{% endif %}>
+                                    <label class="form-check-label" for="user_{{ u.id }}_close_session">
+                                        Cerrar “sesión” visual tras cada fichaje
+                                    </label>
+                                </div>
+
+                                <div class="mt-auto">
+                                    <a href="{{ url_for('admin_usuario_ficha', user_id=u.id) }}"
+                                       class="btn btn-sm btn-outline-primary">
+                                        Ver ficha de usuario
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No hay usuarios con rol <code>empleado</code> para asignar.</p>
+        {% endif %}
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-success">
+                Guardar configuración del kiosko
+            </button>
+            <a href="{{ url_for('admin_kioskos') }}" class="btn btn-secondary ms-2">
+                Volver al listado de kioskos
+            </a>
+        </div>
+    </form>
+</div>
+
+{% endblock %}

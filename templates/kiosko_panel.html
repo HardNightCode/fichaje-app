@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="container-fluid mt-3">
+    <h2 class="mb-1">Kiosko: {{ kiosk.name }}</h2>
+    <p class="text-muted mb-3">
+        Modo kiosko activo. Selecciona tu usuario, indica el PIN y la acción de fichaje.
+    </p>
+
+    {# Mensajes flash #}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mb-3">
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else category }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% if kiosk_users %}
+        <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-3">
+            {% for ku in kiosk_users %}
+                {% set u = ku.user %}
+                <div class="col">
+                    <div class="card h-100 shadow-sm {% if last_user_id == u.id %}border border-primary{% endif %}"
+                         data-user-id="{{ u.id }}"
+                         data-last-selected="{% if last_user_id == u.id %}1{% else %}0{% endif %}">
+                        <div class="card-body d-flex flex-column">
+                            <h4 class="card-title text-center mb-3">{{ u.username }}</h4>
+
+                            <form method="post" action="{{ url_for('fichar') }}" class="d-flex flex-column flex-grow-1">
+                                <input type="hidden" name="usuario_id" value="{{ u.id }}">
+                                <input type="hidden" name="lat" value="">
+                                <input type="hidden" name="lon" value="">
+
+                                <div class="mb-2">
+                                    <label for="pin_{{ u.id }}" class="form-label">
+                                        PIN (4 dígitos)
+                                    </label>
+                                    <input type="password"
+                                           class="form-control form-control-lg text-center"
+                                           id="pin_{{ u.id }}"
+                                           name="pin"
+                                           pattern="\d{4}"
+                                           inputmode="numeric"
+                                           maxlength="4"
+                                           required>
+                                </div>
+
+                                <div class="mt-2 mb-2 text-center">
+                                    <small class="text-muted">
+                                        Selecciona la acción que quieres fichar:
+                                    </small>
+                                </div>
+
+                                <div class="btn-group mb-2" role="group">
+                                    <button type="submit"
+                                            name="accion"
+                                            value="entrada"
+                                            class="btn btn-success btn-sm">
+                                        Entrada
+                                    </button>
+                                    <button type="submit"
+                                            name="accion"
+                                            value="salida"
+                                            class="btn btn-danger btn-sm">
+                                        Salida
+                                    </button>
+                                </div>
+
+                                <div class="btn-group mb-2" role="group">
+                                    <button type="submit"
+                                            name="accion"
+                                            value="descanso_inicio"
+                                            class="btn btn-warning btn-sm">
+                                        Inicio descanso
+                                    </button>
+                                    <button type="submit"
+                                            name="accion"
+                                            value="descanso_fin"
+                                            class="btn btn-warning btn-sm">
+                                        Fin descanso
+                                    </button>
+                                </div>
+
+                                <div class="mt-auto text-center">
+                                    <small class="text-muted d-block">
+                                        La ubicación se obtiene automáticamente del dispositivo.
+                                    </small>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>No hay usuarios asignados a este kiosko.</p>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    if (!navigator.geolocation) {
+        console.warn("Geolocalización no soportada en este navegador.");
+    } else {
+        function setGeoCoords(lat, lon) {
+            const latInputs = document.querySelectorAll('input[name="lat"]');
+            const lonInputs = document.querySelectorAll('input[name="lon"]');
+            latInputs.forEach(function (inp) { inp.value = lat; });
+            lonInputs.forEach(function (inp) { inp.value = lon; });
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            function (pos) {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+                setGeoCoords(lat, lon);
+            },
+            function (err) {
+                console.warn("No se pudo obtener la geolocalización:", err);
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 30000
+            }
+        );
+    }
+
+    // Auto-focus del PIN del último usuario si “no se cierra la sesión visual”
+    const selectedCard = document.querySelector('.card[data-last-selected="1"]');
+    if (selectedCard) {
+        const pinInput = selectedCard.querySelector('input[name="pin"]');
+        if (pinInput) {
+            pinInput.focus();
+        }
+    }
+});
+</script>
+
+{% endblock %}

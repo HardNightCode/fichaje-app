@@ -8,7 +8,7 @@ import csv
 from io import StringIO
 from logging.handlers import RotatingFileHandler
 
-from flask import Flask, Response, render_template, request, redirect, url_for, flash
+from flask import Flask, Response, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_weasyprint import HTML, render_pdf
 from flask_login import (
@@ -301,6 +301,67 @@ class UserScheduleSettings(db.Model):
         backref=db.backref("schedule_settings", uselist=False),
     )
 
+class Kiosk(db.Model):
+    """
+    Kiosko físico/lógico.
+
+    - name: nombre del kiosko (ej: 'Kiosko Recepción')
+    - description: texto opcional
+    - owner_id: usuario que administra este kiosko (rol 'admin' o 'kiosko_admin')
+    - kiosk_account_id: usuario que se usa para iniciar sesión en el kiosko (rol 'kiosko')
+    """
+    __tablename__ = "kiosk"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False, unique=True)
+    description = db.Column(db.String(255))
+
+    owner_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    kiosk_account_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+
+    owner = db.relationship(
+        "User",
+        foreign_keys=[owner_id],
+        backref=db.backref("kioskos_propios", lazy="dynamic"),
+    )
+    kiosk_account = db.relationship(
+        "User",
+        foreign_keys=[kiosk_account_id],
+        backref=db.backref("kioskos_como_cuenta", lazy="dynamic"),
+    )
+
+
+class KioskUser(db.Model):
+    """
+    Asociación kiosko <-> usuario que ficha en ese kiosko.
+
+    - pin_hash: hash del PIN de 4 dígitos para este usuario en este kiosko
+    - close_session_after_punch: flag que podrás usar en el frontend
+      para decidir si, tras fichar, "se cierra" la sesión visual de ese usuario
+      en el kiosko o se queda seleccionado.
+    """
+    __tablename__ = "kiosk_user"
+
+    id = db.Column(db.Integer, primary_key=True)
+    kiosk_id = db.Column(db.Integer, db.ForeignKey("kiosk.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+
+    pin_hash = db.Column(db.String(255), nullable=False)
+    close_session_after_punch = db.Column(db.Boolean, default=True, nullable=False)
+
+    kiosk = db.relationship(
+        "Kiosk",
+        backref=db.backref("kiosk_users", cascade="all, delete-orphan", lazy="dynamic"),
+    )
+    user = db.relationship(
+        "User",
+        backref=db.backref("kiosk_links", cascade="all, delete-orphan", lazy="dynamic"),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("kiosk_id", "user_id", name="uq_kiosk_user"),
+    )
+
 # ======================================================
 # Carga de usuario para Flask-Login
 # ======================================================
@@ -321,6 +382,21 @@ def admin_required(view_func):
 
     return wrapped_view
 
+def kiosko_admin_required(view_func):
+    """
+    Permite acceso a:
+      - admin  (ve y gestiona todos los kioskos)
+      - kiosko_admin (solo los suyos)
+    """
+    @wraps(view_func)
+    @login_required
+    def wrapped_view(*args, **kwargs):
+        if current_user.role not in ("admin", "kiosko_admin"):
+            flash("No tienes permisos para acceder a esta sección de kioskos.", "error")
+            return redirect(url_for("index"))
+        return view_func(*args, **kwargs)
+
+    return wrapped_view
 
 # ======================================================
 # Inicialización de la BD
@@ -434,6 +510,10 @@ def generar_informe():
 @app.route("/")
 @login_required
 def index():
+    # Si es cuenta de kiosko, no mostramos el dashboard normal
+    if current_user.role == "kiosko":
+        return redirect(url_for("kiosko_panel"))
+
     # Registros del usuario actual (para tabla y resumen)
     registros_usuario = (
         Registro.query.filter_by(usuario_id=current_user.id)
@@ -1174,6 +1254,147 @@ def admin_usuarios_fichas():
     usuarios = User.query.order_by(User.username).all()
     return render_template("admin_usuarios_fichas.html", usuarios=usuarios)
 
+@app.route("/admin/kioskos", methods=["GET", "POST"])
+@kiosko_admin_required
+def admin_kioskos():
+    """
+    Gestión de kioskos:
+      - admin: ve y gestiona todos
+      - kiosko_admin: solo los que tenga como owner
+    """
+    if current_user.role == "admin":
+        kioskos = Kiosk.query.order_by(Kiosk.name).all()
+    else:
+        kioskos = (
+            Kiosk.query
+            .filter_by(owner_id=current_user.id)
+            .order_by(Kiosk.name)
+            .all()
+        )
+
+    # Usuarios que pueden ser cuenta de kiosko (rol 'kiosko')
+    cuentas_kiosko = User.query.filter_by(role="kiosko").order_by(User.username).all()
+
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        description = request.form.get("description", "").strip()
+        account_id_str = request.form.get("kiosk_account_id", "").strip()
+
+        if not name:
+            flash("El nombre del kiosko es obligatorio.", "error")
+            return redirect(url_for("admin_kioskos"))
+
+        kiosk = Kiosk(name=name, description=description)
+
+        # owner: el que lo crea (admin o kiosko_admin)
+        kiosk.owner_id = current_user.id
+
+        # cuenta de kiosko asociada (opcional)
+        if account_id_str:
+            try:
+                acc_id = int(account_id_str)
+                cuenta = User.query.get(acc_id)
+                if cuenta and cuenta.role == "kiosko":
+                    kiosk.kiosk_account_id = cuenta.id
+                else:
+                    flash("La cuenta seleccionada no es válida como cuenta de kiosko.", "error")
+                    return redirect(url_for("admin_kioskos"))
+            except ValueError:
+                flash("Cuenta de kiosko no válida.", "error")
+                return redirect(url_for("admin_kioskos"))
+
+        db.session.add(kiosk)
+        db.session.commit()
+        flash("Kiosko creado correctamente.", "success")
+        return redirect(url_for("admin_kioskos"))
+
+    return render_template(
+        "admin_kioskos.html",
+        kioskos=kioskos,
+        cuentas_kiosko=cuentas_kiosko,
+    )
+
+@app.route("/admin/kioskos/<int:kiosk_id>", methods=["GET", "POST"])
+@kiosko_admin_required
+def admin_kiosko_detalle(kiosk_id):
+    kiosk = Kiosk.query.get_or_404(kiosk_id)
+
+    # Control de acceso: kiosko_admin solo ve sus kioskos
+    if current_user.role == "kiosko_admin" and kiosk.owner_id != current_user.id:
+        flash("No tienes permisos para administrar este kiosko.", "error")
+        return redirect(url_for("admin_kioskos"))
+
+    # Usuarios “fichables” (normalmente empleados)
+    usuarios = User.query.filter_by(role="empleado").order_by(User.username).all()
+
+    # Mapa user_id -> KioskUser
+    kiosk_users_map = {
+        ku.user_id: ku for ku in kiosk.kiosk_users
+    }
+
+    # Cuentas de kiosko disponibles para asociar a este kiosko
+    cuentas_kiosko = User.query.filter_by(role="kiosko").order_by(User.username).all()
+
+    if request.method == "POST":
+        # Actualizar cuenta de kiosko asociada
+        account_id_str = request.form.get("kiosk_account_id", "").strip()
+        if account_id_str:
+            try:
+                acc_id = int(account_id_str)
+                cuenta = User.query.get(acc_id)
+                if cuenta and cuenta.role == "kiosko":
+                    kiosk.kiosk_account_id = cuenta.id
+                else:
+                    flash("La cuenta de kiosko seleccionada no es válida.", "error")
+                    return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+            except ValueError:
+                flash("Cuenta de kiosko no válida.", "error")
+                return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+        else:
+            kiosk.kiosk_account_id = None
+
+        # Gestionar usuarios asignados al kiosko
+        for u in usuarios:
+            enabled = request.form.get(f"user_{u.id}_enabled") == "on"
+            pin = (request.form.get(f"user_{u.id}_pin") or "").strip()
+            close_flag = request.form.get(f"user_{u.id}_close_session") == "on"
+
+            ku = kiosk_users_map.get(u.id)
+
+            if enabled:
+                # Requerir PIN de 4 dígitos
+                if not (pin and pin.isdigit() and len(pin) == 4):
+                    flash(f"El usuario {u.username} debe tener un PIN de 4 dígitos.", "error")
+                    return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+
+                if ku is None:
+                    ku = KioskUser(
+                        kiosk_id=kiosk.id,
+                        user_id=u.id,
+                        pin_hash=generate_password_hash(pin),
+                        close_session_after_punch=close_flag,
+                    )
+                    db.session.add(ku)
+                else:
+                    ku.pin_hash = generate_password_hash(pin)
+                    ku.close_session_after_punch = close_flag
+            else:
+                # Desasignar usuario del kiosko
+                if ku is not None:
+                    db.session.delete(ku)
+
+        db.session.commit()
+        flash("Configuración del kiosko actualizada correctamente.", "success")
+        return redirect(url_for("admin_kiosko_detalle", kiosk_id=kiosk.id))
+
+    return render_template(
+        "admin_kiosko_detalle.html",
+        kiosk=kiosk,
+        usuarios=usuarios,
+        kiosk_users_map=kiosk_users_map,
+        cuentas_kiosko=cuentas_kiosko,
+    )
+
 @app.route("/admin/usuarios/<int:user_id>/ficha", methods=["GET", "POST"])
 @admin_required
 def admin_usuario_ficha(user_id):
@@ -1232,6 +1453,41 @@ def admin_usuario_ficha(user_id):
         horarios=horarios,
         horarios_usuario=horarios_usuario,
         settings=settings,
+    )
+
+@app.route("/kiosko", methods=["GET"])
+@login_required
+def kiosko_panel():
+    """
+    Panel de fichaje en modo kiosko.
+
+    Solo accesible para usuarios con rol 'kiosko'.
+    Muestra en cuadrícula los usuarios del kiosko asociado a esta cuenta.
+    """
+    if current_user.role != "kiosko":
+        flash("Esta sección es solo para cuentas de kiosko.", "error")
+        return redirect(url_for("index"))
+
+    kiosk = (
+        Kiosk.query
+        .filter_by(kiosk_account_id=current_user.id)
+        .first()
+    )
+    if not kiosk:
+        flash("Esta cuenta de kiosko no está asociada a ningún kiosko.", "error")
+        return redirect(url_for("index"))
+
+    # Usuarios de este kiosko
+    kiosk_users = list(kiosk.kiosk_users)  # lista de KioskUser
+
+    # Último usuario “mantenido” en el kiosko (si procede)
+    last_user_id = session.get("kiosk_last_user_id")
+
+    return render_template(
+        "kiosko_panel.html",
+        kiosk=kiosk,
+        kiosk_users=kiosk_users,
+        last_user_id=last_user_id,
     )
 
 # ======================================================
@@ -1973,27 +2229,86 @@ def calcular_horas_trabajadas(registros):
 @app.route("/fichar", methods=["POST"])
 @login_required
 def fichar():
-    # Obtenemos las ubicaciones (esquema nuevo o antiguo)
-    ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
+    """
+    Fichaje normal y modo KIOSKO.
+
+    - Si current_user.role != 'kiosko' -> fichaje del propio usuario (como siempre).
+    - Si current_user.role == 'kiosko' -> fichaje en nombre de un usuario
+      asociado al kiosko, validando PIN y asociación.
+    """
+    accion = request.form.get("accion")
+    if accion not in ("entrada", "salida", "descanso_inicio", "descanso_fin"):
+        flash("Acción no válida", "error")
+        # Destino según el tipo de cuenta
+        redirect_home = "kiosko_panel" if current_user.role == "kiosko" else "index"
+        return redirect(url_for(redirect_home))
+
+    # Destino por defecto para todos los redirects de este endpoint
+    redirect_home = "kiosko_panel" if current_user.role == "kiosko" else "index"
+
+    usuario_objetivo = current_user
+    kiosk = None
+    ku = None  # KioskUser (en modo kiosko)
+
+    # --------- MODO KIOSKO ---------
+    if current_user.role == "kiosko":
+        usuario_id_str = request.form.get("usuario_id", "").strip()
+        pin = request.form.get("pin", "").strip()
+
+        if not usuario_id_str or not pin:
+            flash("Debes seleccionar un usuario y proporcionar el PIN.", "error")
+            return redirect(url_for(redirect_home))
+
+        try:
+            usuario_id = int(usuario_id_str)
+        except ValueError:
+            flash("Usuario seleccionado no válido.", "error")
+            return redirect(url_for(redirect_home))
+
+        usuario_objetivo = User.query.get(usuario_id)
+        if not usuario_objetivo:
+            flash("Usuario no encontrado.", "error")
+            return redirect(url_for(redirect_home))
+
+        kiosk = (
+            Kiosk.query
+            .filter_by(kiosk_account_id=current_user.id)
+            .first()
+        )
+        if not kiosk:
+            flash("Esta cuenta de kiosko no está asociada a ningún kiosko.", "error")
+            return redirect(url_for(redirect_home))
+
+        ku = (
+            KioskUser.query
+            .filter_by(kiosk_id=kiosk.id, user_id=usuario_objetivo.id)
+            .first()
+        )
+        if not ku:
+            flash("El usuario no está autorizado para fichar en este kiosko.", "error")
+            return redirect(url_for(redirect_home))
+
+        if not check_password_hash(ku.pin_hash, pin):
+            flash("PIN incorrecto.", "error")
+            return redirect(url_for(redirect_home))
+
+    # A partir de aquí, trabajamos siempre con usuario_objetivo
+    # ---------------------------------------------------------------------------
+    ubicaciones_usuario = obtener_ubicaciones_usuario(usuario_objetivo)
 
     if not ubicaciones_usuario:
         flash(
             "No tienes una ubicación asignada. Contacta con el administrador.",
             "error",
         )
-        return redirect(url_for("index"))
+        return redirect(url_for(redirect_home))
 
-    flexible_activo = usuario_tiene_flexible(current_user)
-
-    accion = request.form.get("accion")
-    if accion not in ("entrada", "salida", "descanso_inicio", "descanso_fin"):
-        flash("Acción no válida", "error")
-        return redirect(url_for("index"))
+    flexible_activo = usuario_tiene_flexible(usuario_objetivo)
 
     # === Bloque que impide descanso manual si el usuario tiene descanso FIJO hoy ===
     if accion in ("descanso_inicio", "descanso_fin"):
         hoy = datetime.now().date()
-        schedule = obtener_horario_aplicable(current_user, hoy)
+        schedule = obtener_horario_aplicable(usuario_objetivo, hoy)
 
         descanso_fijo_hoy = False
         if schedule:
@@ -2011,154 +2326,134 @@ def fichar():
                 "Tu horario tiene un descanso fijo configurado. No puedes registrar descansos manuales.",
                 "error",
             )
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
     # === FIN bloque descanso fijo ===
 
     ultimo_registro = (
-        Registro.query.filter_by(usuario_id=current_user.id)
+        Registro.query.filter_by(usuario_id=usuario_objetivo.id)
         .order_by(Registro.momento.desc())
         .first()
     )
 
     # === Validación de secuencia entrada/salida/descanso ===
     if accion in ("entrada", "salida"):
-        # Validación estándar de entrada/salida
         es_valido, msg_error = validar_secuencia_fichaje(accion, ultimo_registro)
         if not es_valido:
             flash(msg_error, "error")
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
     else:
         # Reglas para descanso
-        if not usuario_tiene_intervalo_abierto(current_user.id):
+        if not usuario_tiene_intervalo_abierto(usuario_objetivo.id):
             flash("No puedes registrar un descanso si no has fichado la entrada.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
 
         if accion == "descanso_inicio":
-            # No permitir iniciar descanso si ya hay uno en curso
             ultimo_inicio = (
                 Registro.query
-                .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+                .filter_by(usuario_id=usuario_objetivo.id, accion="descanso_inicio")
                 .order_by(Registro.momento.desc())
                 .first()
             )
 
             if ultimo_inicio:
-                # ¿Hay un descanso_fin que cierre ese inicio?
                 fin_posterior = (
                     Registro.query
                     .filter(
-                        Registro.usuario_id == current_user.id,
+                        Registro.usuario_id == usuario_objetivo.id,
                         Registro.accion == "descanso_fin",
                         Registro.momento > ultimo_inicio.momento,
                     )
                     .first()
                 )
 
-                # ¿Hay una salida posterior a ese descanso_inicio?
                 salida_posterior = (
                     Registro.query
                     .filter(
-                        Registro.usuario_id == current_user.id,
+                        Registro.usuario_id == usuario_objetivo.id,
                         Registro.accion == "salida",
                         Registro.momento > ultimo_inicio.momento,
                     )
                     .first()
                 )
 
-                # Solo consideramos "descanso en curso" si:
-                #   - NO hay descanso_fin posterior
-                #   - Y NO hay salida posterior (la salida cierra también el descanso)
                 if not fin_posterior and not salida_posterior:
                     flash("Ya tienes un descanso en curso.", "error")
-                    return redirect(url_for("index"))
+                    return redirect(url_for(redirect_home))
 
         elif accion == "descanso_fin":
-            # No permitir terminar descanso si no hay uno en curso
             ultimo_inicio = (
                 Registro.query
-                .filter_by(usuario_id=current_user.id, accion="descanso_inicio")
+                .filter_by(usuario_id=usuario_objetivo.id, accion="descanso_inicio")
                 .order_by(Registro.momento.desc())
                 .first()
             )
             if not ultimo_inicio:
                 flash("No hay ningún descanso en curso que terminar.", "error")
-                return redirect(url_for("index"))
+                return redirect(url_for(redirect_home))
 
-            # ¿Hay un descanso_fin posterior a ese inicio?
             fin_posterior = (
                 Registro.query
                 .filter(
-                    Registro.usuario_id == current_user.id,
+                    Registro.usuario_id == usuario_objetivo.id,
                     Registro.accion == "descanso_fin",
                     Registro.momento > ultimo_inicio.momento,
                 )
                 .first()
             )
 
-            # ¿Hay una salida posterior a ese inicio?
             salida_posterior = (
                 Registro.query
                 .filter(
-                    Registro.usuario_id == current_user.id,
+                    Registro.usuario_id == usuario_objetivo.id,
                     Registro.accion == "salida",
                     Registro.momento > ultimo_inicio.momento,
                 )
                 .first()
             )
 
-            # Si hay fin posterior, ya se cerró el descanso.
-            # Si hay salida posterior, consideramos que la jornada (y el descanso) han terminado.
             if fin_posterior or salida_posterior:
                 flash("No hay ningún descanso en curso que terminar.", "error")
-                return redirect(url_for("index"))
+                return redirect(url_for(redirect_home))
 
     # === Comprobación de horario (si está configurado y se fuerza) ===
-    settings = getattr(current_user, "schedule_settings", None)
+    settings = getattr(usuario_objetivo, "schedule_settings", None)
     if settings and settings.enforce_schedule:
-        # Horarios asignados al usuario (many-to-many)
-        user_schedules = list(current_user.schedules)
+        user_schedules = list(usuario_objetivo.schedules)
 
         if not user_schedules:
             flash(
                 "No tienes ningún horario asignado. Contacta con el administrador.",
                 "error",
             )
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
 
         margin = settings.margin_minutes or 0
-        ahora = datetime.now()  # Hora local del servidor
+        ahora = datetime.now()
         hoy = ahora.date()
-        dow = hoy.weekday()  # 0 = lunes ... 6 = domingo
+        dow = hoy.weekday()
 
         autorizado_por_horario = False
 
         for sched in user_schedules:
-            # --- Elegir tramo horario según use_per_day ---
             if sched.use_per_day:
-                # Buscar el día concreto
                 dia = next((d for d in sched.days if d.day_of_week == dow), None)
                 if not dia:
-                    # En este horario, hoy no es laborable
                     continue
-
                 inicio_t = dia.start_time
                 fin_t = dia.end_time
             else:
                 inicio_t = sched.start_time
                 fin_t = sched.end_time
 
-            # Si por lo que sea faltan horas, nos saltamos este horario
             if not inicio_t or not fin_t:
                 continue
 
             inicio_dt = datetime.combine(hoy, inicio_t)
             fin_dt = datetime.combine(hoy, fin_t)
 
-            # Si el horario cruza medianoche (ej. 22:00–06:00)
             if fin_dt <= inicio_dt:
                 fin_dt += timedelta(days=1)
 
-            # Aplicamos margen
             inicio_con_margen = inicio_dt - timedelta(minutes=margin)
             fin_con_margen = fin_dt + timedelta(minutes=margin)
 
@@ -2172,7 +2467,7 @@ def fichar():
                 f"(se tiene en cuenta un margen de {margin} minutos).",
                 "error",
             )
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
 
     # === Coordenadas ===
     lat_str = request.form.get("lat")
@@ -2183,21 +2478,20 @@ def fichar():
             "No se recibió la ubicación del dispositivo. Comprueba los permisos de geolocalización.",
             "error",
         )
-        return redirect(url_for("index"))
+        return redirect(url_for(redirect_home))
 
     try:
         lat_user = float(lat_str)
         lon_user = float(lon_str)
     except ValueError:
         flash("Coordenadas de ubicación inválidas.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for(redirect_home))
 
     # Si NO está en modo Flexible, comprobamos radios
     if not flexible_activo:
         autorizado = False
 
         for loc in ubicaciones_usuario:
-            # Por si coexistieran Flexible + fijas, ignoramos Flexible en el cálculo de radios
             if (loc.name or "").lower() == "flexible":
                 continue
 
@@ -2216,11 +2510,11 @@ def fichar():
                 "No estás dentro de ninguna de tus ubicaciones autorizadas. No se registra el fichaje.",
                 "error",
             )
-            return redirect(url_for("index"))
+            return redirect(url_for(redirect_home))
 
     # === Registro de fichaje ===
     registro = Registro(
-        usuario_id=current_user.id,
+        usuario_id=usuario_objetivo.id,
         accion=accion,
         momento=datetime.utcnow(),
         latitude=lat_user,
@@ -2229,6 +2523,19 @@ def fichar():
     db.session.add(registro)
     db.session.commit()
 
+    # === Gestión de “sesión visual” en modo kiosko ===
+    if current_user.role == "kiosko":
+        if ku and not ku.close_session_after_punch:
+            # Mantener usuario “activo” en el kiosko
+            session["kiosk_last_user_id"] = usuario_objetivo.id
+        else:
+            # Cerrar “sesión visual” del usuario
+            session.pop("kiosk_last_user_id", None)
+
+        flash("Fichaje registrado correctamente", "success")
+        return redirect(url_for("kiosko_panel"))
+
+    # Usuarios normales: comportamiento clásico
     flash("Fichaje registrado correctamente", "success")
     return redirect(url_for("index"))
 
