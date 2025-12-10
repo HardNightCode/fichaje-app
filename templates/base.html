@@ -41,6 +41,12 @@
                       <li><a class="dropdown-item" href="{{ url_for('admin_usuarios') }}">Usuarios / ubicaciones</a></li>
                       <li><a class="dropdown-item" href="{{ url_for('admin_usuarios_fichas') }}">Ficha usuarios</a></li>
                       <li><a class="dropdown-item" href="{{ url_for('admin_horarios') }}">Horarios</a></li>
+
+                      {# Solo el ADMIN puede crear usuarios nuevos #}
+                      {% if current_user.role == 'admin' %}
+                      <li><a class="dropdown-item" href="{{ url_for('register') }}">Crear usuario</a></li>
+                      {% endif %}
+
                       <li><hr class="dropdown-divider"></li>
                       <li><a class="dropdown-item" href="{{ url_for('admin_kioskos') }}">Kioskos</a></li>
                   </ul>
@@ -104,5 +110,3 @@
 {% block scripts %}{% endblock %}
 </body>
 </html>
-
-
