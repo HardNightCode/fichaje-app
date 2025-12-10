@@ -2662,10 +2662,11 @@ def fichar():
 @admin_required
 def register():
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
+        username = request.form.get("username")
+        password = request.form.get("password")
         role = request.form.get("role", "empleado")
-        must_change = request.form.get("must_change_password") == "on"
+
+        must_change = bool(request.form.get("must_change_password"))
 
         if not username or not password:
             flash("Usuario y contraseña son obligatorios", "error")
