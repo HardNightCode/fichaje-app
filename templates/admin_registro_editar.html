@@ -69,12 +69,13 @@
       </div>
       <div class="card-body">
         <div class="mb-3">
-          <label class="form-label">Tiempo de descanso (real)</label>
+          <label class="form-label" for="descanso_manual">Tiempo de descanso (real)</label>
           <input type="time"
-                 name="descanso_val"
-                 class="form-control"
-                 step="60"
-                 value="{{ descanso_val }}">
+                id="descanso_manual"
+                name="descanso_manual"
+                class="form-control"
+                step="60"
+                value="{{ descanso_val }}">
           <div class="form-text">
             Indica el descanso en formato <strong>HH:mm</strong>.
             Si lo dejas vacío, no se modificará el descanso.
