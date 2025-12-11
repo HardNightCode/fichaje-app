@@ -2841,7 +2841,7 @@ def admin_registros():
         if not it.usuario:
             continue
 
-        # Nos aseguramos de que el intervalo tenga trabajo_real calculado
+        # Aseguramos que el intervalo tenga trabajo_real calculado
         trabajo_real = getattr(it, "trabajo_real", None)
         if trabajo_real is None:
             extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
@@ -2849,12 +2849,24 @@ def admin_registros():
             it.horas_defecto = defecto_td
             trabajo_real = getattr(it, "trabajo_real", timedelta(0))
 
-        if trabajo_real.total_seconds() < 0:
-            trabajo_real = timedelta(0)
+        # Fallback: si trabajo_real <= 0 pero tenemos duración y descanso,
+        # calculamos de forma simple: duracion - descanso_total
+        if trabajo_real.total_seconds() <= 0:
+            dur = calcular_duracion_trabajada_intervalo(it) or timedelta(0)
+            descanso_simple = getattr(it, "descanso_total", None)
+            if descanso_simple is None:
+                descanso_simple = timedelta(0)
+            trabajo_estimado = dur - descanso_simple
+            if trabajo_estimado.total_seconds() > 0:
+                trabajo_real = trabajo_estimado
+                it.trabajo_real = trabajo_real
+
+        # Si después de todo sigue siendo 0 o negativo, no suma
+        if trabajo_real.total_seconds() <= 0:
+            continue
 
         username = it.usuario.username
         horas_por_usuario_td[username] = horas_por_usuario_td.get(username, timedelta()) + trabajo_real
-
 
     # Lo convertimos a texto formateado HH:mm
     horas_por_usuario = {
@@ -3282,26 +3294,37 @@ def generar_pdf(intervalos, tipo_periodo: str):
         it.horas_extra = extra_td
         it.horas_defecto = defecto_td
 
-    # --- Resumen de horas trabajadas por usuario (mismas reglas que en la vista) ---
+    # --- Resumen de horas trabajadas por usuario (igual que en admin_registros) ---
     resumen_td = {}
 
     for it in intervalos:
         if not it.usuario:
             continue
 
-        trabajo_real = getattr(it, "trabajo_real", timedelta(0))
-        if trabajo_real.total_seconds() < 0:
-            trabajo_real = timedelta(0)
+        trabajo_real = getattr(it, "trabajo_real", None)
+        if trabajo_real is None:
+            extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+            it.horas_extra = extra_td
+            it.horas_defecto = defecto_td
+            trabajo_real = getattr(it, "trabajo_real", timedelta(0))
 
+        if trabajo_real.total_seconds() <= 0:
+            dur = calcular_duracion_trabajada_intervalo(it) or timedelta(0)
+            descanso_simple = getattr(it, "descanso_total", None)
+            if descanso_simple is None:
+                descanso_simple = timedelta(0)
+            trabajo_estimado = dur - descanso_simple
+            if trabajo_estimado.total_seconds() > 0:
+                trabajo_real = trabajo_estimado
+                it.trabajo_real = trabajo_real
+
+        if trabajo_real.total_seconds() <= 0:
+            continue
 
         username = it.usuario.username
         resumen_td[username] = resumen_td.get(username, timedelta()) + trabajo_real
 
-    # Pasamos al template un dict username -> "HH:MM"
-    resumen_horas = {
-        username: formatear_timedelta(td)
-        for username, td in resumen_td.items()
-    }
+    resumen_horas = resumen_td
 
     # Renderizar el PDF
     html = render_template(
