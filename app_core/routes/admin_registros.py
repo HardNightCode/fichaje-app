@@ -588,3 +588,114 @@ def register_admin_registro_routes(app):
             salida_lon=salida_lon,
             descanso_val=descanso_val,
         )
+
+    @app.route("/admin/registros/nuevo", methods=["GET", "POST"])
+    @admin_required
+    def admin_registro_nuevo():
+        """
+        Crear un registro (intervalo) desde cero.
+        Reutiliza el mismo formulario que la edición.
+        """
+        usuarios = User.query.order_by(User.username).all()
+
+        if request.method == "POST":
+            usuario_id_str = request.form.get("usuario_id")
+            try:
+                nuevo_usuario_id = int(usuario_id_str)
+                usuario_nuevo = User.query.get(nuevo_usuario_id)
+                if usuario_nuevo is None:
+                    raise ValueError
+            except (TypeError, ValueError):
+                flash("Usuario no válido.", "error")
+                return redirect(url_for("admin_registro_nuevo"))
+
+            entrada_momento_str = request.form.get("entrada_momento", "").strip()
+            salida_momento_str = request.form.get("salida_momento", "").strip()
+            entrada_lat_str = request.form.get("entrada_latitude", "").strip()
+            entrada_lon_str = request.form.get("entrada_longitude", "").strip()
+            salida_lat_str = request.form.get("salida_latitude", "").strip()
+            salida_lon_str = request.form.get("salida_longitude", "").strip()
+
+            entrada = None
+            salida = None
+
+            if entrada_momento_str:
+                try:
+                    entrada_local = datetime.strptime(
+                        entrada_momento_str, "%Y-%m-%dT%H:%M"
+                    )
+                    entrada_lat = float(entrada_lat_str.replace(",", ".")) if entrada_lat_str else None
+                    entrada_lon = float(entrada_lon_str.replace(",", ".")) if entrada_lon_str else None
+                except Exception:
+                    flash("Datos de entrada no válidos.", "error")
+                    return redirect(url_for("admin_registro_nuevo"))
+
+                entrada_momento = local_to_utc_naive(entrada_local)
+                entrada = Registro(
+                    usuario_id=nuevo_usuario_id,
+                    accion="entrada",
+                    momento=entrada_momento,
+                    latitude=entrada_lat,
+                    longitude=entrada_lon,
+                )
+                db.session.add(entrada)
+
+            if salida_momento_str:
+                try:
+                    salida_local = datetime.strptime(
+                        salida_momento_str, "%Y-%m-%dT%H:%M"
+                    )
+                    salida_lat = float(salida_lat_str.replace(",", ".")) if salida_lat_str else None
+                    salida_lon = float(salida_lon_str.replace(",", ".")) if salida_lon_str else None
+                except Exception:
+                    flash("Datos de salida no válidos.", "error")
+                    db.session.rollback()
+                    return redirect(url_for("admin_registro_nuevo"))
+
+                salida_momento = local_to_utc_naive(salida_local)
+                salida = Registro(
+                    usuario_id=nuevo_usuario_id,
+                    accion="salida",
+                    momento=salida_momento,
+                    latitude=salida_lat,
+                    longitude=salida_lon,
+                )
+                db.session.add(salida)
+
+            if entrada and salida and entrada.momento > salida.momento:
+                db.session.rollback()
+                flash("La fecha/hora de entrada no puede ser posterior a la de salida.", "error")
+                return redirect(url_for("admin_registro_nuevo"))
+
+            db.session.commit()
+            if entrada:
+                return redirect(url_for("editar_registro", registro_id=entrada.id))
+            elif salida:
+                return redirect(url_for("editar_registro", registro_id=salida.id))
+            else:
+                flash("Debes indicar al menos una entrada o una salida.", "error")
+                return redirect(url_for("admin_registro_nuevo"))
+
+        # GET: intervalo vacío
+        intervalo = SimpleNamespace(
+            usuario=None,
+            entrada=None,
+            salida=None,
+            descanso_en_curso=False,
+            descanso_total=None,
+            descanso_label=None,
+        )
+        return render_template(
+            "admin_registro_editar.html",
+            usuarios=usuarios,
+            intervalo=intervalo,
+            entrada=None,
+            salida=None,
+            entrada_momento_val="",
+            salida_momento_val="",
+            entrada_lat="",
+            entrada_lon="",
+            salida_lat="",
+            salida_lon="",
+            descanso_val="00:00",
+        )
