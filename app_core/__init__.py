@@ -12,14 +12,20 @@ from .routes import register_routes
 
 
 def create_app():
-    app = Flask(__name__)
+    base_dir = Path(__file__).resolve().parent.parent
+
+    # Aseguramos que Flask mire a las carpetas originales de plantillas y estáticos
+    app = Flask(
+        __name__,
+        template_folder=str(base_dir / "templates"),
+        static_folder=str(base_dir / "static"),
+    )
     app.jinja_env.filters["to_local"] = to_local
     app.config["SECRET_KEY"] = os.getenv(
         "SECRET_KEY",
         "cambia-esta-clave-por-una-mas-segura",
     )
 
-    base_dir = Path(__file__).resolve().parent.parent
     instance_dir = base_dir / "instance"
     instance_dir.mkdir(exist_ok=True)
     default_sqlite_path = instance_dir / "fichaje.db"
@@ -37,7 +43,7 @@ def create_app():
     login_manager.init_app(app)
 
     if not app.debug:
-        log_dir = os.path.join(app.root_path, "logs")
+        log_dir = os.path.join(base_dir, "logs")
         os.makedirs(log_dir, exist_ok=True)
         file_handler = RotatingFileHandler(
             os.path.join(log_dir, "app.log"), maxBytes=1_000_000, backupCount=5
