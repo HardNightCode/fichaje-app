@@ -61,9 +61,9 @@
               <td>{{ (it.entrada_momento|to_local).strftime("%H:%M %d/%m/%Y") if it.entrada_momento else "" }}</td>
               <td>{{ (it.salida_momento|to_local).strftime("%H:%M %d/%m/%Y") if it.salida_momento else "" }}</td>
               <td>{{ it.ubicacion_label or '' }}</td>
-              <td>{{ formatear_timedelta(it.descanso_total or 0) }}</td>
-              <td>{{ formatear_timedelta(it.horas_extra or 0) }}</td>
-              <td>{{ formatear_timedelta(it.horas_defecto or 0) }}</td>
+              <td>{{ formatear_timedelta(it.descanso_total) }}</td>
+              <td>{{ formatear_timedelta(it.horas_extra) }}</td>
+              <td>{{ formatear_timedelta(it.horas_defecto) }}</td>
             </tr>
             {% endfor %}
           </tbody>

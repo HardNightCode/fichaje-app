@@ -47,6 +47,13 @@ def _build_user_sections(intervalos, modo_conteo):
         if fecha_base:
             trabajos_por_usuario_fecha[it.usuario.username][fecha_base] = trabajos_por_usuario_fecha[it.usuario.username].get(fecha_base, timedelta()) + trabajo_real
 
+    def to_td(val):
+        if val is None:
+            return timedelta(0)
+        if isinstance(val, (int, float)):
+            return timedelta(seconds=val)
+        return val
+
     sections = []
     for username, ints in per_user.items():
         ints_sorted = sorted(ints, key=lambda x: x.entrada_momento or x.salida_momento or datetime.min)
@@ -57,12 +64,9 @@ def _build_user_sections(intervalos, modo_conteo):
 
         # Normalizar atributos para evitar ints en plantillas
         for it in ints_sorted:
-            if not getattr(it, "descanso_total", None):
-                it.descanso_total = timedelta(0)
-            if not getattr(it, "horas_extra", None):
-                it.horas_extra = timedelta(0)
-            if not getattr(it, "horas_defecto", None):
-                it.horas_defecto = timedelta(0)
+            it.descanso_total = to_td(getattr(it, "descanso_total", None))
+            it.horas_extra = to_td(getattr(it, "horas_extra", None))
+            it.horas_defecto = to_td(getattr(it, "horas_defecto", None))
 
         # Modificaciones de registros de este usuario
         reg_ids = [r.id for it in ints_sorted for r in (it.entrada, it.salida) if r]
