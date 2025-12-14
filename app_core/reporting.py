@@ -55,6 +55,15 @@ def _build_user_sections(intervalos, modo_conteo):
             user_obj, trabajos_por_usuario_fecha.get(username, {}), modo_conteo
         )
 
+        # Normalizar atributos para evitar ints en plantillas
+        for it in ints_sorted:
+            if not getattr(it, "descanso_total", None):
+                it.descanso_total = timedelta(0)
+            if not getattr(it, "horas_extra", None):
+                it.horas_extra = timedelta(0)
+            if not getattr(it, "horas_defecto", None):
+                it.horas_defecto = timedelta(0)
+
         # Modificaciones de registros de este usuario
         reg_ids = [r.id for it in ints_sorted for r in (it.entrada, it.salida) if r]
         ediciones = []
