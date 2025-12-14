@@ -251,88 +251,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-  function fichar(accion) {
-    const form = document.getElementById('form-fichar');
-    const accionInput = document.getElementById('accion');
-    const latInput = document.getElementById('lat');
-    const lonInput = document.getElementById('lon');
-
-    if (!navigator.geolocation) {
-      alert("Tu navegador no soporta geolocalización.");
-      return;
-    }
-
-    accionInput.value = accion;
-
-    navigator.geolocation.getCurrentPosition(
-      function(pos) {
-        latInput.value = pos.coords.latitude;
-        lonInput.value = pos.coords.longitude;
-        form.submit();
-      },
-      function(err) {
-        console.error(err);
-        alert("No se pudo obtener tu ubicación. Revisa los permisos de geolocalización.");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      }
-    );
-  }
-
-  // Actualizar en tiempo real los descansos en curso (acumulando segmentos, corrigiendo UTC)
-  document.addEventListener('DOMContentLoaded', function () {
-    const elems = document.querySelectorAll('.descanso-en-curso');
-    if (!elems.length) return;
-
-    function actualizarDescansos() {
-      const ahora = new Date();
-      elems.forEach(function (el) {
-        const isoRaw = el.getAttribute('data-descanso-inicio');
-        if (!isoRaw) return;
-
-        // isoRaw viene de datetime.utcnow().isoformat(), sin zona horaria y con microsegundos.
-        // Lo normalizamos a un ISO UTC sin microsegundos: "YYYY-MM-DDTHH:MM:SSZ"
-        let iso = isoRaw;
-        const dotIndex = iso.indexOf('.');
-        if (dotIndex !== -1) {
-          iso = iso.substring(0, dotIndex);  // quitamos microsegundos
-        }
-        iso = iso + 'Z';  // Indicamos que es UTC
-
-        const inicio = new Date(iso);
-        if (isNaN(inicio.getTime())) return;
-
-        const baseSeg = parseInt(el.getAttribute('data-descanso-base') || '0', 10) || 0;
-
-        const diffMs = ahora.getTime() - inicio.getTime();
-        if (diffMs < 0) return;
-
-        const diffSeconds = Math.floor(diffMs / 1000);
-        let totalSeconds = baseSeg + diffSeconds;
-        if (totalSeconds < 0) totalSeconds = 0;
-
-        const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-        const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-        const s = String(totalSeconds % 60).padStart(2, '0');
-
-        const spanTiempo = el.querySelector('.descanso-tiempo');
-        if (spanTiempo) {
-          spanTiempo.textContent = `${h}:${m}:${s}`;
-        }
-      });
-    }
-
-    actualizarDescansos();
-    setInterval(actualizarDescansos, 1000);
-  });
-</script>
-{% endblock %}
-
-{% block scripts %}
 {{ super() }}
 <!-- Modal justificación horas extra -->
 <div class="modal fade" id="modalExtra" tabindex="-1" aria-hidden="true">
@@ -381,6 +299,51 @@
   const inputDetalle = document.getElementById('inputDetalle');
   const confirmExtra = document.getElementById('confirmExtra');
   let accionPendiente = null;
+
+  // Actualizar descansos en curso
+  document.addEventListener('DOMContentLoaded', function () {
+    const elems = document.querySelectorAll('.descanso-en-curso');
+    if (!elems.length) return;
+
+    function actualizarDescansos() {
+      const ahora = new Date();
+      elems.forEach(function (el) {
+        const isoRaw = el.getAttribute('data-descanso-inicio');
+        if (!isoRaw) return;
+
+        let iso = isoRaw;
+        const dotIndex = iso.indexOf('.');
+        if (dotIndex !== -1) {
+          iso = iso.substring(0, dotIndex);
+        }
+        iso = iso + 'Z';
+
+        const inicio = new Date(iso);
+        if (isNaN(inicio.getTime())) return;
+
+        const baseSeg = parseInt(el.getAttribute('data-descanso-base') || '0', 10) || 0;
+
+        const diffMs = ahora.getTime() - inicio.getTime();
+        if (diffMs < 0) return;
+
+        const diffSeconds = Math.floor(diffMs / 1000);
+        let totalSeconds = baseSeg + diffSeconds;
+        if (totalSeconds < 0) totalSeconds = 0;
+
+        const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+        const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+        const s = String(totalSeconds % 60).padStart(2, '0');
+
+        const spanTiempo = el.querySelector('.descanso-tiempo');
+        if (spanTiempo) {
+          spanTiempo.textContent = `${h}:${m}:${s}`;
+        }
+      });
+    }
+
+    actualizarDescansos();
+    setInterval(actualizarDescansos, 1000);
+  });
 
   btnEnviarExtra.addEventListener('click', () => {
     if (!confirmExtra.checked) {
