@@ -1,0 +1,192 @@
+from datetime import datetime, timedelta
+
+from flask import render_template, redirect, url_for
+from flask_login import current_user, login_required
+
+from ..logic import (
+    agrupar_registros_en_intervalos,
+    calcular_descanso_intervalo_para_usuario,
+    calcular_extra_y_defecto_intervalo,
+    formatear_timedelta,
+    obtener_horario_aplicable,
+    obtener_ubicaciones_usuario,
+    usuario_tiene_flexible,
+)
+from ..models import Registro
+
+
+def register_dashboard_routes(app):
+    @app.route("/")
+    @login_required
+    def index():
+        # Si es cuenta de kiosko, no mostramos el dashboard normal
+        if current_user.role == "kiosko":
+            return redirect(url_for("kiosko_panel"))
+
+        registros_usuario = (
+            Registro.query.filter_by(usuario_id=current_user.id)
+            .order_by(Registro.momento.asc())
+            .all()
+        )
+
+        intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
+
+        for it in intervalos_usuario:
+            if it.usuario and it.entrada_momento:
+                ahora_ref = datetime.utcnow()
+                descanso_td, en_curso, inicio = calcular_descanso_intervalo_para_usuario(
+                    it.usuario.id,
+                    it.entrada_momento,
+                    it.salida_momento,
+                    ahora=ahora_ref,
+                )
+
+                base_segundos = 0
+                if en_curso and inicio:
+                    abierto = max(ahora_ref - inicio, timedelta(0))
+                    base_td = descanso_td - abierto
+                    if base_td.total_seconds() < 0:
+                        base_td = timedelta(0)
+                    base_segundos = int(base_td.total_seconds())
+            else:
+                descanso_td, en_curso, inicio = timedelta(0), False, None
+                base_segundos = 0
+
+            it.descanso_td = descanso_td
+            it.descanso_en_curso = en_curso
+            it.descanso_inicio_iso = inicio.isoformat() if inicio else ""
+            it.descanso_base_segundos = base_segundos
+
+            if en_curso:
+                it.descanso_label = "Descansando"
+            elif descanso_td.total_seconds() > 0:
+                it.descanso_label = formatear_timedelta(descanso_td)
+            else:
+                it.descanso_label = "Sin descanso"
+
+        total_trabajo = timedelta(0)
+        for it in intervalos_usuario:
+            extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+            it.horas_extra = extra_td
+            it.horas_defecto = defecto_td
+            trabajo_real = getattr(it, "trabajo_real", timedelta(0))
+
+            if trabajo_real.total_seconds() < 0:
+                trabajo_real = timedelta(0)
+
+            total_trabajo += trabajo_real
+
+        resumen_horas = formatear_timedelta(total_trabajo)
+
+        ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
+        tiene_ubicaciones = len(ubicaciones_usuario) > 0
+        tiene_flexible = usuario_tiene_flexible(current_user)
+
+        ultimo_trabajo = (
+            Registro.query.filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion.in_(["entrada", "salida"]),
+            )
+            .order_by(Registro.momento.desc())
+            .first()
+        )
+
+        if ultimo_trabajo is None:
+            bloquear_entrada = False
+            bloquear_salida = True
+        else:
+            if ultimo_trabajo.accion == "entrada":
+                bloquear_entrada = True
+                bloquear_salida = False
+            else:
+                bloquear_entrada = False
+                bloquear_salida = True
+
+        hoy = datetime.now().date()
+        schedule = obtener_horario_aplicable(current_user, hoy)
+        tiene_descanso = False
+        descanso_es_flexible = False
+
+        if schedule:
+            if schedule.use_per_day:
+                dow = hoy.weekday()
+                dia = next((d for d in schedule.days if d.day_of_week == dow), None)
+                if dia:
+                    if dia.break_type in ("fixed", "flexible"):
+                        tiene_descanso = True
+                    if dia.break_type == "flexible":
+                        descanso_es_flexible = True
+            else:
+                if schedule.break_type in ("fixed", "flexible"):
+                    tiene_descanso = True
+                if schedule.break_type == "flexible":
+                    descanso_es_flexible = True
+
+        ultimo_entrada = (
+            Registro.query.filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "entrada",
+            )
+            .order_by(Registro.momento.desc())
+            .first()
+        )
+        ultimo_salida = (
+            Registro.query.filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "salida",
+            )
+            .order_by(Registro.momento.desc())
+            .first()
+        )
+
+        entrada_abierta = False
+        if ultimo_entrada:
+            if not ultimo_salida or ultimo_entrada.momento > ultimo_salida.momento:
+                entrada_abierta = True
+
+        ultimo_descanso_inicio = (
+            Registro.query.filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "descanso_inicio",
+            )
+            .order_by(Registro.momento.desc())
+            .first()
+        )
+        ultimo_descanso_fin = (
+            Registro.query.filter(
+                Registro.usuario_id == current_user.id,
+                Registro.accion == "descanso_fin",
+            )
+            .order_by(Registro.momento.desc())
+            .first()
+        )
+
+        descanso_en_curso = False
+        if ultimo_descanso_inicio and entrada_abierta:
+            if (not ultimo_descanso_fin) or (
+                ultimo_descanso_inicio.momento > ultimo_descanso_fin.momento
+            ):
+                if (not ultimo_entrada) or (
+                    ultimo_descanso_inicio.momento >= ultimo_entrada.momento
+                ):
+                    descanso_en_curso = True
+
+        if (not entrada_abierta) or (not descanso_es_flexible):
+            bloquear_descanso = True
+        else:
+            bloquear_descanso = False
+
+        return render_template(
+            "index.html",
+            intervalos_usuario=intervalos_usuario,
+            resumen_horas=resumen_horas,
+            ubicaciones_usuario=ubicaciones_usuario,
+            tiene_ubicaciones=tiene_ubicaciones,
+            tiene_flexible=tiene_flexible,
+            bloquear_entrada=bloquear_entrada,
+            bloquear_salida=bloquear_salida,
+            tiene_descanso=tiene_descanso,
+            descanso_es_flexible=descanso_es_flexible,
+            descanso_en_curso=descanso_en_curso,
+            bloquear_descanso=bloquear_descanso,
+        )
