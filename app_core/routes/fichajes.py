@@ -6,13 +6,17 @@ from werkzeug.security import check_password_hash
 
 from ..extensions import db
 from ..logic import (
+    agrupar_registros_en_intervalos,
+    calcular_extra_y_defecto_intervalo,
+    calcular_jornada_teorica,
+    obtener_horario_aplicable,
     obtener_ubicaciones_usuario,
     usuario_tiene_flexible,
-    obtener_horario_aplicable,
     usuario_tiene_intervalo_abierto,
     validar_secuencia_fichaje,
 )
-from ..models import Kiosk, KioskUser, Registro, User
+from ..models import Kiosk, KioskUser, Registro, RegistroJustificacion, User
+from ..config import to_local, local_to_utc_naive
 from geo_utils import is_within_radius
 
 
@@ -295,6 +299,60 @@ def register_fichaje_routes(app):
             longitude=lon_user,
         )
         db.session.add(registro)
+        db.session.flush()
+
+        # Si es una SALIDA, comprobamos horas extra y pedimos justificación
+        if accion == "salida":
+            motivo_extra = (request.form.get("motivo_extra") or "").strip()
+            detalle_extra = (request.form.get("detalle_extra") or "").strip()
+
+            # Registros del día (en horario local) para calcular trabajado/esperado
+            fecha_local = to_local(registro.momento).date()
+            start_local = datetime.combine(fecha_local, datetime.min.time())
+            end_local = datetime.combine(fecha_local, datetime.max.time())
+            start_utc = local_to_utc_naive(start_local)
+            end_utc = local_to_utc_naive(end_local)
+
+            regs_dia = (
+                Registro.query
+                .filter(
+                    Registro.usuario_id == usuario_objetivo.id,
+                    Registro.momento >= start_utc,
+                    Registro.momento <= end_utc,
+                )
+                .order_by(Registro.momento.asc())
+                .all()
+            )
+
+            intervalos_dia = agrupar_registros_en_intervalos(regs_dia)
+            trabajos_fecha = {}
+            for it in intervalos_dia:
+                extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+                it.horas_extra = extra_td
+                it.horas_defecto = defecto_td
+                trabajo_real = getattr(it, "trabajo_real", None) or timedelta(0)
+                fecha_it = it.entrada_momento.date() if it.entrada_momento else (
+                    it.salida_momento.date() if it.salida_momento else fecha_local
+                )
+                trabajos_fecha[fecha_it] = trabajos_fecha.get(fecha_it, timedelta()) + trabajo_real
+
+            # Esperado diario
+            schedule = obtener_horario_aplicable(usuario_objetivo, fecha_local)
+            esperado_dia = calcular_jornada_teorica(schedule, fecha_local) if schedule else timedelta(0)
+            trabajado_dia = trabajos_fecha.get(fecha_local, timedelta())
+
+            if trabajado_dia > esperado_dia:
+                if not motivo_extra:
+                    db.session.rollback()
+                    flash("Has superado tu jornada prevista hoy. Indica un motivo para registrar la salida.", "error")
+                    return redirect(url_for(redirect_home))
+                just = RegistroJustificacion(
+                    registro_id=registro.id,
+                    motivo=motivo_extra,
+                    detalle=detalle_extra if motivo_extra.lower() == "otro" else detalle_extra or "",
+                )
+                db.session.add(just)
+
         db.session.commit()
 
         if current_user.role == "kiosko":

@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime, timedelta
 from io import StringIO
+from collections import defaultdict
 
 from flask import Response, render_template
 from flask_weasyprint import HTML, render_pdf
@@ -9,84 +10,19 @@ from .logic import (
     calcular_duracion_trabajada_intervalo,
     calcular_extra_y_defecto_intervalo,
     formatear_timedelta,
+    obtener_trabajo_y_esperado_por_periodo,
 )
+from .models import CompanyInfo, RegistroEdicion
 
 
-def generar_csv(intervalos):
-    """Generar un archivo CSV a partir de los intervalos Entrada/Salida."""
-    output = StringIO()
-    writer = csv.writer(output, delimiter=";")
-
-    writer.writerow([
-        "Usuario",
-        "Fecha/hora entrada",
-        "Fecha/hora salida",
-        "Descanso",
-        "Ubicación",
-        "Horas extra",
-        "Horas en defecto",
-    ])
-
-    for it in intervalos:
-        if it.entrada_momento is not None:
-            fe = it.entrada_momento.strftime("%H:%M %d/%m/%Y")
-        else:
-            fe = ""
-
-        if it.salida_momento is not None:
-            fs = it.salida_momento.strftime("%H:%M %d/%m/%Y")
-        else:
-            fs = ""
-
-        if hasattr(it, "descanso_total") and it.descanso_total:
-            descanso_str = formatear_timedelta(it.descanso_total)
-        else:
-            descanso_str = "00:00"
-
-        he = ""
-        hd = ""
-        if hasattr(it, "horas_extra") and it.horas_extra.total_seconds() > 0:
-            he = formatear_timedelta(it.horas_extra)
-        if hasattr(it, "horas_defecto") and it.horas_defecto.total_seconds() > 0:
-            hd = formatear_timedelta(it.horas_defecto)
-
-        writer.writerow([
-            it.usuario.username if it.usuario else "",
-            fe,
-            fs,
-            descanso_str,
-            it.ubicacion_label or "",
-            he,
-            hd,
-        ])
-
-    csv_data = output.getvalue().encode("utf-8-sig")
-    output.close()
-
-    filename = f"registros_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
-    return Response(
-        csv_data,
-        mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-def generar_pdf(intervalos, tipo_periodo: str):
-    """
-    Genera un PDF usando la plantilla informe_pdf.html,
-    mostrando intervalos Entrada/Salida y su resumen de horas.
-    """
-
-    for it in intervalos:
-        extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
-        it.horas_extra = extra_td
-        it.horas_defecto = defecto_td
-
-    resumen_td = {}
+def _build_user_sections(intervalos, modo_conteo):
+    per_user = defaultdict(list)
+    trabajos_por_usuario_fecha = defaultdict(dict)
 
     for it in intervalos:
         if not it.usuario:
             continue
+        per_user[it.usuario.username].append(it)
 
         trabajo_real = getattr(it, "trabajo_real", None)
         if trabajo_real is None:
@@ -105,19 +41,107 @@ def generar_pdf(intervalos, tipo_periodo: str):
                 trabajo_real = trabajo_estimado
                 it.trabajo_real = trabajo_real
 
-        if trabajo_real.total_seconds() <= 0:
-            continue
+        fecha_base = it.entrada_momento.date() if it.entrada_momento else (
+            it.salida_momento.date() if it.salida_momento else None
+        )
+        if fecha_base:
+            trabajos_por_usuario_fecha[it.usuario.username][fecha_base] = trabajos_por_usuario_fecha[it.usuario.username].get(fecha_base, timedelta()) + trabajo_real
 
-        username = it.usuario.username
-        resumen_td[username] = resumen_td.get(username, timedelta()) + trabajo_real
+    sections = []
+    for username, ints in per_user.items():
+        ints_sorted = sorted(ints, key=lambda x: x.entrada_momento or x.salida_momento or datetime.min)
+        user_obj = ints_sorted[0].usuario
+        total_trab, total_esp, extra_td, defecto_td = obtener_trabajo_y_esperado_por_periodo(
+            user_obj, trabajos_por_usuario_fecha.get(username, {}), modo_conteo
+        )
 
-    resumen_horas = resumen_td
+        # Modificaciones de registros de este usuario
+        reg_ids = [r.id for it in ints_sorted for r in (it.entrada, it.salida) if r]
+        ediciones = []
+        if reg_ids:
+            edits = (
+                RegistroEdicion.query
+                .filter(RegistroEdicion.registro_id.in_(reg_ids))
+                .order_by(RegistroEdicion.edit_time.desc())
+                .all()
+            )
+            ediciones = edits
+
+        sections.append({
+            "username": username,
+            "intervalos": ints_sorted,
+            "trabajado": total_trab,
+            "esperado": total_esp,
+            "extra": extra_td,
+            "defecto": defecto_td,
+            "ediciones": ediciones,
+        })
+    return sections
+
+
+def generar_csv(intervalos, modo_conteo):
+    """Generar un archivo CSV agrupado por usuario."""
+    sections = _build_user_sections(intervalos, modo_conteo)
+
+    output = StringIO()
+    writer = csv.writer(output, delimiter=";")
+
+    writer.writerow(["Usuario", "Fecha/hora entrada", "Fecha/hora salida", "Ubicación", "Descanso", "Extra", "Defecto"])
+
+    for sec in sections:
+        writer.writerow([sec["username"], "", "", "", "", "", ""])
+        writer.writerow(["", "Trabajado", "Esperado", "Extra", "Defecto", "", ""])
+        writer.writerow([
+            "",
+            formatear_timedelta(sec["trabajado"]),
+            formatear_timedelta(sec["esperado"]),
+            formatear_timedelta(sec["extra"]),
+            formatear_timedelta(sec["defecto"]),
+            "",
+            "",
+        ])
+        for it in sec["intervalos"]:
+            fe = it.entrada_momento.strftime("%H:%M %d/%m/%Y") if it.entrada_momento else ""
+            fs = it.salida_momento.strftime("%H:%M %d/%m/%Y") if it.salida_momento else ""
+            descanso_str = formatear_timedelta(getattr(it, "descanso_total", timedelta(0)))
+            he = formatear_timedelta(getattr(it, "horas_extra", timedelta(0)))
+            hd = formatear_timedelta(getattr(it, "horas_defecto", timedelta(0)))
+            writer.writerow([
+                "",
+                fe,
+                fs,
+                it.ubicacion_label or "",
+                descanso_str,
+                he,
+                hd,
+            ])
+
+    csv_data = output.getvalue().encode("utf-8-sig")
+    output.close()
+
+    filename = f"registros_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        csv_data,
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def generar_pdf(intervalos, tipo_periodo: str, modo_conteo: str):
+    """
+    Genera un PDF usando la plantilla informe_pdf.html,
+    agrupado por usuario e incluyendo extra/defecto según el modo.
+    """
+
+    sections = _build_user_sections(intervalos, modo_conteo)
+    company = CompanyInfo.query.first()
 
     html = render_template(
         "informe_pdf.html",
-        intervalos=intervalos,
-        resumen_horas=resumen_horas,
+        sections=sections,
         tipo_periodo=tipo_periodo,
+        modo_conteo=modo_conteo,
+        company=company,
         formatear_timedelta=formatear_timedelta,
     )
     return render_pdf(HTML(string=html))

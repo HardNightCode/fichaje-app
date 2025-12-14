@@ -18,6 +18,7 @@ from .models import (
     KioskUser,
     Location,
     Registro,
+    RegistroJustificacion,
     User,
     UserScheduleSettings,
     Schedule,
@@ -459,6 +460,43 @@ def calcular_extra_y_defecto_intervalo(it):
         return timedelta(0), -diff
     else:
         return timedelta(0), timedelta(0)
+
+
+def obtener_trabajo_y_esperado_por_periodo(usuario, trabajos_por_fecha, modo="dia"):
+    """
+    Agrupa el trabajo real y esperado por día/semana/mes según 'modo'.
+    trabajos_por_fecha: dict fecha -> timedelta trabajada
+    """
+    grupos = defaultdict(lambda: {"trabajado": timedelta(0), "esperado": timedelta(0)})
+
+    for fecha, trabajado in trabajos_por_fecha.items():
+        schedule = obtener_horario_aplicable(usuario, fecha)
+        esperado = calcular_jornada_teorica(schedule, fecha) if schedule else timedelta(0)
+
+        if modo == "semanal":
+            clave = (fecha.isocalendar().year, fecha.isocalendar().week)
+        elif modo == "mensual":
+            clave = (fecha.year, fecha.month)
+        else:
+            clave = fecha
+
+        grupos[clave]["trabajado"] += trabajado
+        grupos[clave]["esperado"] += esperado
+
+    # Totales acumulados
+    total_trabajado = sum((v["trabajado"] for v in grupos.values()), timedelta(0))
+    total_esperado = sum((v["esperado"] for v in grupos.values()), timedelta(0))
+
+    extra = timedelta(0)
+    defecto = timedelta(0)
+    for data in grupos.values():
+        diff = data["trabajado"] - data["esperado"]
+        if diff.total_seconds() > 0:
+            extra += diff
+        elif diff.total_seconds() < 0:
+            defecto += -diff
+
+    return total_trabajado, total_esperado, extra, defecto
 
 
 def determinar_ubicacion_por_coordenadas(lat, lon, ubicaciones, margen_extra_m=10.0):

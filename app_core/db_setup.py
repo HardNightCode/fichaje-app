@@ -1,5 +1,5 @@
 from .extensions import db
-from .models import User, Location
+from .models import User, Location, CompanyInfo
 
 
 def crear_tablas():
@@ -50,3 +50,8 @@ def crear_tablas():
 
         db.session.commit()
     # Si hay exactamente una "Flexible", no hacemos nada más
+
+    # Aseguramos registro de empresa único
+    if CompanyInfo.query.count() == 0:
+        db.session.add(CompanyInfo(nombre="Mi Empresa", cif=""))
+        db.session.commit()

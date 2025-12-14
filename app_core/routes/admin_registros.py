@@ -19,6 +19,7 @@ from ..logic import (
     formatear_timedelta,
     local_to_utc_naive,
     obtener_horario_aplicable,
+    obtener_trabajo_y_esperado_por_periodo,
 )
 from ..models import (
     Kiosk,
@@ -85,6 +86,7 @@ def register_admin_registro_routes(app):
         registros = []
         intervalos = []
         ubicacion_filtro = "all"
+        modo_conteo = "dia"
 
         if request.method == "POST":
             usuario_seleccionado = request.form.get("usuario_id", "all")
@@ -95,6 +97,7 @@ def register_admin_registro_routes(app):
             mes_str = request.form.get("mes", "")
             accion = request.form.get("accion", "filtrar")
             ubicacion_filtro = request.form.get("ubicacion_filtro", "all")
+            modo_conteo = request.form.get("modo_conteo", "dia")
 
             mes = int(mes_str) if mes_str else None
 
@@ -224,11 +227,12 @@ def register_admin_registro_routes(app):
             calcular_descanso_intervalos(intervalos, registros)
             
             if accion == "csv":
-                return generar_csv(intervalos)
+                return generar_csv(intervalos, modo_conteo)
             if accion == "pdf":
-                return generar_pdf(intervalos, tipo_periodo)
+                return generar_pdf(intervalos, tipo_periodo, modo_conteo)
 
-        horas_por_usuario_td = {}
+        # Mapa usuario -> fecha -> trabajo real
+        trabajos_por_usuario_fecha = {}
 
         for it in intervalos:
             if not it.usuario:
@@ -254,13 +258,30 @@ def register_admin_registro_routes(app):
             if trabajo_real.total_seconds() <= 0:
                 continue
 
-            username = it.usuario.username
-            horas_por_usuario_td[username] = horas_por_usuario_td.get(username, timedelta()) + trabajo_real
+            usuario = it.usuario
+            username = usuario.username
+            trabajos_por_usuario_fecha.setdefault(username, {})
 
-        horas_por_usuario = {
-            username: formatear_timedelta(td)
-            for username, td in horas_por_usuario_td.items()
-        }
+            fecha_base = it.entrada_momento.date() if it.entrada_momento else (
+                it.salida_momento.date() if it.salida_momento else None
+            )
+            if fecha_base:
+                trabajos_por_usuario_fecha[username][fecha_base] = trabajos_por_usuario_fecha[username].get(fecha_base, timedelta()) + trabajo_real
+
+        horas_por_usuario = {}
+        for username, trabajos_fecha in trabajos_por_usuario_fecha.items():
+            user_obj = next((u for u in usuarios if u.username == username), None)
+            if user_obj is None:
+                continue
+            total_trab, total_esp, extra_td, defecto_td = obtener_trabajo_y_esperado_por_periodo(
+                user_obj, trabajos_fecha, modo_conteo
+            )
+            horas_por_usuario[username] = SimpleNamespace(
+                trabajado=formatear_timedelta(total_trab),
+                esperado=formatear_timedelta(total_esp),
+                extra=formatear_timedelta(extra_td),
+                defecto=formatear_timedelta(defecto_td),
+            )
 
         return render_template(
             "admin_registros.html",
@@ -275,6 +296,7 @@ def register_admin_registro_routes(app):
             mes=mes,
             ubicaciones_definidas=ubicaciones_definidas,
             ubicacion_filtro=ubicacion_filtro,
+            modo_conteo=modo_conteo,
         )
 
     @app.route("/admin/registros/<int:registro_id>/editar", methods=["GET", "POST"])

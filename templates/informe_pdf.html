@@ -5,158 +5,79 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Informe de Registros</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            line-height: 1.6;
-        }
-
-        h1 {
-            text-align: center;
-            color: #333;
-        }
-
-        h2 {
-            margin-top: 30px;
-            color: #555;
-        }
-
-        p {
-            font-size: 14px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-
-        th, td {
-            padding: 8px;
-            border: 1px solid #ddd;
-            text-align: left;
-        }
-
-        th {
-            background-color: #f4f4f4;
-        }
-
-        td {
-            font-size: 12px;
-        }
-
-        .table-container {
-            margin-top: 30px;
-        }
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.5; }
+        h1, h2, h3 { color: #333; }
+        .header { display: flex; align-items: center; gap: 16px; }
+        .logo { max-height: 60px; }
+        .card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-top: 18px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { padding: 8px; border: 1px solid #ddd; font-size: 12px; }
+        th { background: #f4f4f4; }
+        .muted { color: #777; font-size: 12px; }
     </style>
 </head>
 <body>
-    <h1>Informe de Registros</h1>
-    <p><strong>Periodo:</strong> {{ tipo_periodo }}</p>
-
-    <h2>Resumen de horas trabajadas</h2>
-    {% if resumen_horas %}
-        <ul>
-        {% for usuario, horas in resumen_horas.items() %}
-            <li><strong>{{ usuario }}:</strong> {{ formatear_timedelta(horas) }}</li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        <p>No hay horas registradas para este periodo.</p>
-    {% endif %}
-
-    <h2>Registros de fichajes (intervalos)</h2>
-    <div class="table-container">
-        <table>
-            <thead>
-                <tr>
-                    <th>Usuario</th>
-                    <th>Entrada</th>
-                    <th>Salida</th>
-                    <th>Descanso</th>
-                    <th>Horas extra</th>
-                    <th>Horas defecto</th>
-                    <th>Ubicación</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for it in intervalos %}
-                <tr>
-                    <td>{{ it.usuario.username }}</td>
-                    <td>
-                        {% if it.entrada_momento %}
-                            {{ (it.entrada_momento|to_local).strftime("%H:%M %d/%m/%Y") }}
-                        {% else %}
-                            Sin entrada
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if it.salida_momento %}
-                            {{ (it.salida_momento|to_local).strftime("%H:%M %d/%m/%Y") }}
-                        {% else %}
-                            Sin salida
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if it.descanso_total and it.descanso_total.total_seconds() > 0 %}
-                            {{ formatear_timedelta(it.descanso_total) }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td>
-                    {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}
-                        {{ formatear_timedelta(it.horas_extra) }}
-                    {% else %}
-                        -
-                    {% endif %}
-                    </td>
-                    <td>
-                    {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}
-                        {{ formatear_timedelta(it.horas_defecto) }}
-                    {% else %}
-                        -
-                    {% endif %}
-                    </td>
-                    <td>
-                        {% if it.label_entrada or it.label_salida %}
-                            {% if it.label_entrada and it.label_salida and it.label_entrada == it.label_salida %}
-                                {% if it.entrada_lat is not none and it.entrada_lon is not none %}
-                                    <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" target="_blank">
-                                        {{ it.label_entrada }}
-                                    </a>
-                                {% else %}
-                                    {{ it.label_entrada }}
-                                {% endif %}
-                            {% else %}
-                                {% if it.label_entrada %}
-                                    {% if it.entrada_lat is not none and it.entrada_lon is not none %}
-                                        <a href="https://www.google.com/maps?q={{ it.entrada_lat }},{{ it.entrada_lon }}" target="_blank">
-                                            {{ it.label_entrada }}
-                                        </a>
-                                    {% else %}
-                                        {{ it.label_entrada }}
-                                    {% endif %}
-                                {% endif %}
-                                {% if it.label_entrada and it.label_salida %} - {% endif %}
-                                {% if it.label_salida %}
-                                    {% if it.salida_lat is not none and it.salida_lon is not none %}
-                                        <a href="https://www.google.com/maps?q={{ it.salida_lat }},{{ it.salida_lon }}" target="_blank">
-                                            {{ it.label_salida }}
-                                        </a>
-                                    {% else %}
-                                        {{ it.label_salida }}
-                                    {% endif %}
-                                {% endif %}
-                            {% endif %}
-                        {% else %}
-                            <span>Sin datos</span>
-                        {% endif %}
-                    </td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+    <div class="header">
+      {% if company and company.logo_path %}
+        <img src="{{ url_for('static', filename=company.logo_path) }}" class="logo" alt="Logo empresa">
+      {% endif %}
+      <div>
+        <h1>{{ company.nombre if company and company.nombre else "Informe de Registros" }}</h1>
+        {% if company %}
+          <div class="muted">
+            {% if company.cif %}CIF: {{ company.cif }} · {% endif %}
+            {% if company.direccion %}{{ company.direccion }} · {% endif %}
+            {% if company.telefono %}{{ company.telefono }}{% endif %}
+          </div>
+        {% endif %}
+        <div class="muted">Periodo: {{ tipo_periodo }} · Conteo: {{ modo_conteo|capitalize }}</div>
+      </div>
     </div>
+
+    {% for sec in sections %}
+      <div class="card">
+        <h3>{{ sec.username }}</h3>
+        <div class="muted">
+          Trabajado: {{ formatear_timedelta(sec.trabajado) }} |
+          Esperado: {{ formatear_timedelta(sec.esperado) }} |
+          Extra: {{ formatear_timedelta(sec.extra) }} |
+          Defecto: {{ formatear_timedelta(sec.defecto) }}
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Entrada</th>
+              <th>Salida</th>
+              <th>Ubicación</th>
+              <th>Descanso</th>
+              <th>Extra</th>
+              <th>Defecto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in sec.intervalos %}
+            <tr>
+              <td>{{ (it.entrada_momento|to_local).strftime("%H:%M %d/%m/%Y") if it.entrada_momento else "" }}</td>
+              <td>{{ (it.salida_momento|to_local).strftime("%H:%M %d/%m/%Y") if it.salida_momento else "" }}</td>
+              <td>{{ it.ubicacion_label or '' }}</td>
+              <td>{{ formatear_timedelta(getattr(it, 'descanso_total', 0)) }}</td>
+              <td>{{ formatear_timedelta(getattr(it, 'horas_extra', 0)) }}</td>
+              <td>{{ formatear_timedelta(getattr(it, 'horas_defecto', 0)) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {% if sec.ediciones %}
+          <p class="muted" style="margin-top:10px;">Modificaciones:</p>
+          <ul>
+            {% for ed in sec.ediciones %}
+              <li>{{ ed.edit_time|to_local.strftime("%d/%m/%Y %H:%M") }} · Registro {{ ed.registro_id }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    {% endfor %}
 </body>
 </html>

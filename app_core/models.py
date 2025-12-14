@@ -5,6 +5,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from .extensions import db
 
 
+class CompanyInfo(db.Model):
+    __tablename__ = "company_info"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(255), nullable=True)
+    cif = db.Column(db.String(50), nullable=True)
+    direccion = db.Column(db.String(255), nullable=True)
+    telefono = db.Column(db.String(50), nullable=True)
+    email = db.Column(db.String(120), nullable=True)
+    web = db.Column(db.String(255), nullable=True)
+    logo_path = db.Column(db.String(255), nullable=True)
+    descripcion = db.Column(db.Text, nullable=True)
+
+
 class User(UserMixin, db.Model):
     __tablename__ = "user"
 
@@ -93,6 +107,21 @@ class RegistroEdicion(db.Model):
 
     # Relación con el usuario que edita
     editor = db.relationship("User", backref=db.backref("registros_editados", lazy=True))
+
+
+class RegistroJustificacion(db.Model):
+    """
+    Motivo asociado a un fichaje de salida cuando hay horas extra.
+    """
+    __tablename__ = "registro_justificacion"
+
+    id = db.Column(db.Integer, primary_key=True)
+    registro_id = db.Column(db.Integer, db.ForeignKey("registro.id"), nullable=False, unique=True)
+    motivo = db.Column(db.String(120), nullable=False)
+    detalle = db.Column(db.Text, nullable=True)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    registro = db.relationship("Registro", backref=db.backref("justificacion", uselist=False))
 
 
 class UserLocation(db.Model):

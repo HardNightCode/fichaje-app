@@ -35,6 +35,8 @@
                                 <input type="hidden" name="usuario_id" value="{{ u.id }}">
                                 <input type="hidden" name="lat" value="">
                                 <input type="hidden" name="lon" value="">
+                                <input type="hidden" name="motivo_extra" value="">
+                                <input type="hidden" name="detalle_extra" value="">
 
                                 <div class="mb-2">
                                     <label for="pin_{{ u.id }}" class="form-label">
@@ -139,6 +141,78 @@ document.addEventListener("DOMContentLoaded", function () {
             pinInput.focus();
         }
     }
+
+    // Modal de justificación para salidas
+    const modalTemplate = `
+    <div class="modal fade" id="modalExtraK" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Justificar horas extra</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">Indica el motivo si la jornada supera lo previsto.</p>
+            <div class="mb-3">
+              <label class="form-label">Motivo</label>
+              <select class="form-select" id="selectMotivoK">
+                <option value="">Selecciona...</option>
+                <option value="Incidencia operativa">Incidencia operativa</option>
+                <option value="Atención a cliente urgente">Atención a cliente urgente</option>
+                <option value="Tarea crítica no planificada">Tarea crítica no planificada</option>
+                <option value="Cobertura de turno">Cobertura de turno</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Detalle</label>
+              <textarea class="form-control" id="inputDetalleK" rows="2" placeholder="Describe brevemente si elegiste 'Otro'"></textarea>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="confirmExtraK">
+              <label class="form-check-label" for="confirmExtraK">Confirmo que la información es correcta.</label>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btnEnviarExtraK">Enviar</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', modalTemplate);
+    const modalK = new bootstrap.Modal(document.getElementById('modalExtraK'));
+    const selectMotivoK = document.getElementById('selectMotivoK');
+    const inputDetalleK = document.getElementById('inputDetalleK');
+    const confirmExtraK = document.getElementById('confirmExtraK');
+    const btnEnviarExtraK = document.getElementById('btnEnviarExtraK');
+    let formPendiente = null;
+
+    document.querySelectorAll('form[action="{{ url_for("fichar") }}"]').forEach(form => {
+      form.addEventListener('submit', function (ev) {
+        const submitter = ev.submitter;
+        if (submitter && submitter.value === 'salida') {
+          ev.preventDefault();
+          formPendiente = form;
+          modalK.show();
+        }
+      });
+    });
+
+    btnEnviarExtraK.addEventListener('click', () => {
+      if (!confirmExtraK.checked) {
+        alert('Confirma que la información es correcta.');
+        return;
+      }
+      if (formPendiente) {
+        formPendiente.querySelector('input[name="motivo_extra"]').value = selectMotivoK.value;
+        formPendiente.querySelector('input[name="detalle_extra"]').value = inputDetalleK.value;
+        modalK.hide();
+        formPendiente.submit();
+        formPendiente = null;
+      }
+    });
 });
 </script>
 

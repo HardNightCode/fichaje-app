@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Datos de la empresa{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-10">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <h5 class="mb-0">Información corporativa</h5>
+          <small class="text-muted">Estos datos aparecerán en los informes exportados.</small>
+        </div>
+      </div>
+      <div class="card-body">
+        <form method="post" enctype="multipart/form-data" class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nombre de la empresa</label>
+            <input type="text" class="form-control" name="nombre" value="{{ info.nombre or '' }}" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">CIF / NIF</label>
+            <input type="text" class="form-control" name="cif" value="{{ info.cif or '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Dirección</label>
+            <input type="text" class="form-control" name="direccion" value="{{ info.direccion or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Teléfono</label>
+            <input type="text" class="form-control" name="telefono" value="{{ info.telefono or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" name="email" value="{{ info.email or '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Web</label>
+            <input type="text" class="form-control" name="web" value="{{ info.web or '' }}" placeholder="https://">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Descripción breve</label>
+            <textarea class="form-control" rows="3" name="descripcion" placeholder="Actividad, nota legal, etc.">{{ info.descripcion or '' }}</textarea>
+          </div>
+          <div class="col-md-6 d-flex flex-column gap-2">
+            <label class="form-label mb-0">Logo (png, jpg, webp)</label>
+            {% if info.logo_path %}
+              <div class="border rounded p-2 bg-light d-inline-flex align-items-center gap-3">
+                <img src="{{ url_for('static', filename=info.logo_path) }}" alt="Logo" style="height:60px;">
+                <span class="text-muted small">Logo actual</span>
+              </div>
+            {% endif %}
+            <input type="file" class="form-control" name="logo" accept=".png,.jpg,.jpeg,.gif,.webp">
+          </div>
+
+          <div class="col-12 d-flex justify-content-end">
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -69,6 +69,8 @@
           <input type="hidden" name="accion" id="accion">
           <input type="hidden" name="lat" id="lat">
           <input type="hidden" name="lon" id="lon">
+          <input type="hidden" name="motivo_extra" id="motivo_extra">
+          <input type="hidden" name="detalle_extra" id="detalle_extra">
 
           <p class="mb-3 text-muted">
             Pulsa uno de los botones para registrar tu fichaje. Usaremos la ubicación actual de tu dispositivo para validar el punto de control.
@@ -327,5 +329,99 @@
     actualizarDescansos();
     setInterval(actualizarDescansos, 1000);
   });
+</script>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<!-- Modal justificación horas extra -->
+<div class="modal fade" id="modalExtra" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Justificar horas extra</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted">Indica el motivo si has superado tu jornada prevista.</p>
+        <div class="mb-3">
+          <label class="form-label">Motivo</label>
+          <select class="form-select" id="selectMotivo">
+            <option value="">Selecciona...</option>
+            <option value="Incidencia operativa">Incidencia operativa</option>
+            <option value="Atención a cliente urgente">Atención a cliente urgente</option>
+            <option value="Tarea crítica no planificada">Tarea crítica no planificada</option>
+            <option value="Cobertura de turno">Cobertura de turno</option>
+            <option value="otro">Otro</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Detalle</label>
+          <textarea class="form-control" id="inputDetalle" rows="2" placeholder="Describe brevemente si elegiste 'Otro'"></textarea>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" value="" id="confirmExtra">
+          <label class="form-check-label" for="confirmExtra">
+            Confirmo que la información es correcta.
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btnEnviarExtra">Enviar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const modalExtra = new bootstrap.Modal(document.getElementById('modalExtra'));
+  const btnEnviarExtra = document.getElementById('btnEnviarExtra');
+  const selectMotivo = document.getElementById('selectMotivo');
+  const inputDetalle = document.getElementById('inputDetalle');
+  const confirmExtra = document.getElementById('confirmExtra');
+  let accionPendiente = null;
+
+  btnEnviarExtra.addEventListener('click', () => {
+    if (!confirmExtra.checked) {
+      alert('Confirma que la información es correcta.');
+      return;
+    }
+    document.getElementById('motivo_extra').value = selectMotivo.value;
+    document.getElementById('detalle_extra').value = inputDetalle.value;
+    modalExtra.hide();
+    if (accionPendiente) {
+      enviarFichaje(accionPendiente);
+      accionPendiente = null;
+    }
+  });
+
+  function fichar(accion) {
+    document.getElementById('accion').value = accion;
+    if (accion === 'salida') {
+      accionPendiente = accion;
+      modalExtra.show();
+      return;
+    }
+    enviarFichaje(accion);
+  }
+
+  function enviarFichaje(accion) {
+    if (!navigator.geolocation) {
+      alert("La geolocalización no está disponible en este navegador.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      function (position) {
+        document.getElementById("lat").value = position.coords.latitude;
+        document.getElementById("lon").value = position.coords.longitude;
+        document.getElementById("form-fichar").submit();
+      },
+      function () {
+        alert("No se pudo obtener la ubicación. Activa los permisos de geolocalización.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
 </script>
 {% endblock %}
