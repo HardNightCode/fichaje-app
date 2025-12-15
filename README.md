@@ -1,7 +1,6 @@
 # fichaje-app
 
-Documentacion tecnica del modulo (aplicacion Flask de fichajes) para que cualquier desarrollador pueda entender el funcionamiento de punta a punta.
-
+Documentacion tecnica del modulo (aplicacion Flask de fichajes) para que cualquier desarrollador pueda entender el funcionamiento (mas o menos).
 ## Stack y arranque rapido
 - Python + Flask, Flask-Login, Flask-SQLAlchemy, WeasyPrint (PDF), SQLite por defecto.
 - Ejecutar en local: `python app.py` (usa `instance/fichaje.db` si no hay `DATABASE_URL`). Se crea usuario admin `admin/admin123` y la ubicacion especial `Flexible`.
