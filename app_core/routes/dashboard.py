@@ -67,6 +67,7 @@ def register_dashboard_routes(app):
 
         hoy = datetime.now().date()
         total_trabajo_hoy = timedelta(0)
+        total_trabajo_semana = timedelta(0)
         for it in intervalos_usuario:
             extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
             it.horas_extra = extra_td
@@ -111,6 +112,12 @@ def register_dashboard_routes(app):
         selected_key = week_keys[week_page_int - 1] if week_keys else None
         intervalos_semana = week_map.get(selected_key, []) if selected_key else []
 
+        # Calcular total trabajado en la semana seleccionada
+        for it in intervalos_semana:
+            trabajo_real = getattr(it, "trabajo_real", timedelta(0)) or timedelta(0)
+            if trabajo_real.total_seconds() > 0:
+                total_trabajo_semana += trabajo_real
+
         # Etiquetas de semanas
         semanas_meta = []
         for idx, key in enumerate(week_keys, start=1):
@@ -128,7 +135,7 @@ def register_dashboard_routes(app):
             domingo = lunes + timedelta(days=6)
             semana_actual_label = f"Semana {wk} ({lunes.strftime('%d/%m')} - {domingo.strftime('%d/%m')})"
 
-        resumen_horas = formatear_timedelta(total_trabajo_hoy)
+        resumen_horas = formatear_timedelta(total_trabajo_semana if intervalos_semana else total_trabajo_hoy)
 
         ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
         tiene_ubicaciones = len(ubicaciones_usuario) > 0
