@@ -99,16 +99,6 @@
         </select>
       </div>
 
-      <!-- Modo de conteo de horas -->
-      <div class="col-md-3">
-        <label class="form-label">Conteo de horas</label>
-        <select name="modo_conteo" class="form-select">
-          <option value="dia" {% if modo_conteo == 'dia' %}selected{% endif %}>Diario</option>
-          <option value="semanal" {% if modo_conteo == 'semanal' %}selected{% endif %}>Semanal</option>
-          <option value="mensual" {% if modo_conteo == 'mensual' %}selected{% endif %}>Mensual</option>
-        </select>
-      </div>
-
       <!-- Botones -->
       <div class="col-md-3 d-flex align-items-end">
         <div class="btn-group w-100">
