@@ -68,18 +68,6 @@ def _build_user_sections(intervalos, modo_conteo):
             it.horas_extra = to_td(getattr(it, "horas_extra", None))
             it.horas_defecto = to_td(getattr(it, "horas_defecto", None))
 
-        # Modificaciones de registros de este usuario
-        reg_ids = [r.id for it in ints_sorted for r in (it.entrada, it.salida) if r]
-        ediciones = []
-        if reg_ids:
-            edits = (
-                RegistroEdicion.query
-                .filter(RegistroEdicion.registro_id.in_(reg_ids))
-                .order_by(RegistroEdicion.edit_time.desc())
-                .all()
-            )
-            ediciones = edits
-
         sections.append({
             "username": username,
             "intervalos": ints_sorted,
@@ -87,7 +75,6 @@ def _build_user_sections(intervalos, modo_conteo):
             "esperado": total_esp,
             "extra": extra_td,
             "defecto": defecto_td,
-            "ediciones": ediciones,
         })
     return sections
 

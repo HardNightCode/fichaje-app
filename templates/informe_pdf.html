@@ -68,15 +68,6 @@
             {% endfor %}
           </tbody>
         </table>
-
-        {% if sec.ediciones %}
-          <p class="muted" style="margin-top:10px;">Modificaciones:</p>
-          <ul>
-            {% for ed in sec.ediciones %}
-              <li>{{ (ed.edit_time|to_local).strftime("%d/%m/%Y %H:%M") }} · Registro {{ ed.registro_id }}</li>
-            {% endfor %}
-          </ul>
-        {% endif %}
       </div>
     {% endfor %}
 </body>
