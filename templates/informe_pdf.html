@@ -49,11 +49,11 @@
             <tr>
               <th>Entrada</th>
               <th>Salida</th>
-              <th>Ubicación</th>
-              <th>Descanso</th>
-              <th>Extra</th>
-              <th>Defecto</th>
-            </tr>
+          <th>Ubicación</th>
+          <th>Descanso</th>
+          <th>Extra</th>
+          <th>Defecto</th>
+        </tr>
           </thead>
           <tbody>
             {% for it in sec.intervalos %}
@@ -62,8 +62,12 @@
               <td>{{ (it.salida_momento|to_local).strftime("%H:%M %d/%m/%Y") if it.salida_momento else "" }}</td>
               <td>{{ it.ubicacion_label or '' }}</td>
               <td>{{ formatear_timedelta(it.descanso_total) }}</td>
-              <td>{{ formatear_timedelta(it.horas_extra) }}</td>
-              <td>{{ formatear_timedelta(it.horas_defecto) }}</td>
+              <td style="color: {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}#2e7d32{% else %}#555{% endif %};">
+                {{ formatear_timedelta(it.horas_extra) }}
+              </td>
+              <td style="color: {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}#c62828{% else %}#555{% endif %};">
+                {{ formatear_timedelta(it.horas_defecto) }}
+              </td>
             </tr>
             {% endfor %}
           </tbody>

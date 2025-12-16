@@ -104,8 +104,15 @@ def generar_csv(intervalos, modo_conteo):
             fe = it.entrada_momento.strftime("%H:%M %d/%m/%Y") if it.entrada_momento else ""
             fs = it.salida_momento.strftime("%H:%M %d/%m/%Y") if it.salida_momento else ""
             descanso_str = formatear_timedelta(getattr(it, "descanso_total", timedelta(0)))
-            he = formatear_timedelta(getattr(it, "horas_extra", timedelta(0)))
-            hd = formatear_timedelta(getattr(it, "horas_defecto", timedelta(0)))
+            he_td = getattr(it, "horas_extra", timedelta(0)) or timedelta(0)
+            hd_td = getattr(it, "horas_defecto", timedelta(0)) or timedelta(0)
+            he = formatear_timedelta(he_td)
+            hd = formatear_timedelta(hd_td)
+            # Añadimos marcas para destacar visualmente en hojas de cálculo
+            if he_td.total_seconds() > 0:
+                he = f"+{he}"
+            if hd_td.total_seconds() > 0:
+                hd = f"-{hd}"
             writer.writerow([
                 "",
                 fe,
