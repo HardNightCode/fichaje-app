@@ -9,6 +9,7 @@
   <div class="card-header">Filtros</div>
   <div class="card-body">
     <form id="filtros-form" action="{{ url_for('admin_registros') }}" method="post" class="row g-3">
+      <input type="hidden" name="accion" id="accion" value="filtrar">
 
       <!-- Usuario -->
       <div class="col-md-3">
@@ -102,9 +103,6 @@
       <!-- Botones -->
       <div class="col-md-3 d-flex align-items-end">
         <div class="btn-group w-100">
-          <button type="submit" name="accion" value="filtrar" class="btn btn-primary">
-            Aplicar
-          </button>
           <button type="submit" name="accion" value="csv" class="btn btn-outline-secondary">
             CSV
           </button>
@@ -460,4 +458,33 @@
   });
 </script>
 
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  const form = document.getElementById('filtros-form');
+  const accionInput = document.getElementById('accion');
+  const autoSubmitFields = [
+    'usuario_id', 'tipo_periodo', 'fecha_semana', 'mes',
+    'fecha_desde', 'fecha_hasta', 'ubicacion_filtro'
+  ];
+
+  autoSubmitFields.forEach(id => {
+    const el = form.querySelector(`[name="${id}"]`);
+    if (el) {
+      el.addEventListener('change', () => {
+        accionInput.value = 'filtrar';
+        form.submit();
+      });
+    }
+  });
+
+  // Asegura que al exportar se use la acción correcta
+  form.querySelectorAll('button[name="accion"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      accionInput.value = btn.value;
+    });
+  });
+</script>
 {% endblock %}
