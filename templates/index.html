@@ -16,7 +16,7 @@
     <div class="stat-card subtle-border h-100">
       <div>
         <div class="label">Tiempo registrado hoy</div>
-        <div class="value">{{ resumen_horas if resumen_horas and resumen_horas != "00:00" else "--:--" }}</div>
+        <div class="value">{{ resumen_horas_hoy if resumen_horas_hoy else "--:--" }}</div>
       </div>
       <div class="stat-icon bg-primary-soft text-primary-emphasis">
         <i class="bi bi-clock-history"></i>
@@ -129,12 +129,12 @@
         <span class="badge bg-light text-dark border">Actualizado</span>
       </div>
       <div class="card-body text-center">
-        {% if resumen_horas and resumen_horas != "00:00" %}
+        {% if resumen_horas_semana and resumen_horas_semana != "00:00" %}
           <p class="mb-1">
-            Total de horas registradas:
+            Total de horas registradas en la semana seleccionada:
           </p>
           <p class="display-6 mb-0">
-            <strong>{{ resumen_horas }}</strong>
+            <strong>{{ resumen_horas_semana }}</strong>
           </p>
         {% else %}
           <p class="text-muted mb-0">
