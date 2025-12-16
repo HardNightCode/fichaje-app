@@ -161,10 +161,6 @@
               {{ semana_actual_label or "Semana actual" }}
             </div>
             <div class="d-flex gap-2">
-              <a class="btn btn-sm btn-outline-secondary {% if week_page <= 1 %}disabled{% endif %}"
-                 href="{{ url_for('index', week_page=week_page-1) }}">Anterior</a>
-              <a class="btn btn-sm btn-outline-secondary {% if week_page >= total_pages %}disabled{% endif %}"
-                 href="{{ url_for('index', week_page=week_page+1) }}">Siguiente</a>
               <select class="form-select form-select-sm"
                       onchange="if (this.value) window.location.href=this.value;">
                 {% for wk in semanas_meta %}
