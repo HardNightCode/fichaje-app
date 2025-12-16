@@ -86,7 +86,7 @@ def register_admin_registro_routes(app):
         registros = []
         intervalos = []
         ubicacion_filtro = "all"
-        modo_conteo = "dia"
+        modo_conteo = "semanal"
 
         if request.method == "POST":
             usuario_seleccionado = request.form.get("usuario_id", "all")
@@ -97,7 +97,7 @@ def register_admin_registro_routes(app):
             mes_str = request.form.get("mes", "")
             accion = request.form.get("accion", "filtrar")
             ubicacion_filtro = request.form.get("ubicacion_filtro", "all")
-            modo_conteo = request.form.get("modo_conteo", "dia")
+            modo_conteo = request.form.get("modo_conteo", "semanal")
 
             mes = int(mes_str) if mes_str else None
 
