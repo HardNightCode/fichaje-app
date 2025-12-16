@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+from collections import OrderedDict
 
-from flask import render_template, redirect, url_for
+from flask import render_template, redirect, url_for, request
 from flask_login import current_user, login_required
 
 from ..logic import (
@@ -64,7 +65,8 @@ def register_dashboard_routes(app):
             else:
                 it.descanso_label = "Sin descanso"
 
-        total_trabajo = timedelta(0)
+        hoy = datetime.now().date()
+        total_trabajo_hoy = timedelta(0)
         for it in intervalos_usuario:
             extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
             it.horas_extra = extra_td
@@ -74,9 +76,59 @@ def register_dashboard_routes(app):
             if trabajo_real.total_seconds() < 0:
                 trabajo_real = timedelta(0)
 
-            total_trabajo += trabajo_real
+            fecha_it = None
+            if it.entrada_momento:
+                fecha_it = it.entrada_momento.date()
+            elif it.salida_momento:
+                fecha_it = it.salida_momento.date()
 
-        resumen_horas = formatear_timedelta(total_trabajo)
+            if fecha_it == hoy:
+                total_trabajo_hoy += trabajo_real
+
+        # Agrupar intervalos por semana ISO (año, semana)
+        week_map = OrderedDict()
+        for it in intervalos_usuario:
+            ref = it.entrada_momento or it.salida_momento
+            if not ref:
+                continue
+            iso = ref.isocalendar()
+            key = (iso.year, iso.week)
+            if key not in week_map:
+                week_map[key] = []
+            week_map[key].append(it)
+
+        week_keys = sorted(week_map.keys(), reverse=True)
+        week_page = request.args.get("week_page", "1")
+        try:
+            week_page_int = max(1, int(week_page))
+        except ValueError:
+            week_page_int = 1
+
+        total_pages = len(week_keys) if week_keys else 1
+        if week_page_int > total_pages:
+            week_page_int = total_pages
+
+        selected_key = week_keys[week_page_int - 1] if week_keys else None
+        intervalos_semana = week_map.get(selected_key, []) if selected_key else []
+
+        # Etiquetas de semanas
+        semanas_meta = []
+        for idx, key in enumerate(week_keys, start=1):
+            year, wk = key
+            # Fecha de lunes de esa semana ISO
+            lunes = date.fromisocalendar(year, wk, 1)
+            domingo = lunes + timedelta(days=6)
+            label = f"Semana {wk} ({lunes.strftime('%d/%m')} - {domingo.strftime('%d/%m')})"
+            semanas_meta.append({"page": idx, "label": label})
+
+        semana_actual_label = None
+        if selected_key:
+            year, wk = selected_key
+            lunes = date.fromisocalendar(year, wk, 1)
+            domingo = lunes + timedelta(days=6)
+            semana_actual_label = f"Semana {wk} ({lunes.strftime('%d/%m')} - {domingo.strftime('%d/%m')})"
+
+        resumen_horas = formatear_timedelta(total_trabajo_hoy)
 
         ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
         tiene_ubicaciones = len(ubicaciones_usuario) > 0
@@ -178,7 +230,7 @@ def register_dashboard_routes(app):
 
         return render_template(
             "index.html",
-            intervalos_usuario=intervalos_usuario,
+            intervalos_usuario=intervalos_semana,
             resumen_horas=resumen_horas,
             ubicaciones_usuario=ubicaciones_usuario,
             tiene_ubicaciones=tiene_ubicaciones,
@@ -189,4 +241,8 @@ def register_dashboard_routes(app):
             descanso_es_flexible=descanso_es_flexible,
             descanso_en_curso=descanso_en_curso,
             bloquear_descanso=bloquear_descanso,
+            semana_actual_label=semana_actual_label,
+            week_page=week_page_int,
+            total_pages=total_pages,
+            semanas_meta=semanas_meta,
         )

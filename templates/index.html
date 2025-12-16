@@ -156,6 +156,26 @@
       </div>
       <div class="card-body p-0">
         {% if intervalos_usuario %}
+          <div class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center">
+            <div class="small text-muted">
+              {{ semana_actual_label or "Semana actual" }}
+            </div>
+            <div class="d-flex gap-2">
+              <a class="btn btn-sm btn-outline-secondary {% if week_page <= 1 %}disabled{% endif %}"
+                 href="{{ url_for('index', week_page=week_page-1) }}">Anterior</a>
+              <a class="btn btn-sm btn-outline-secondary {% if week_page >= total_pages %}disabled{% endif %}"
+                 href="{{ url_for('index', week_page=week_page+1) }}">Siguiente</a>
+              <select class="form-select form-select-sm"
+                      onchange="if (this.value) window.location.href=this.value;">
+                {% for wk in semanas_meta %}
+                  <option value="{{ url_for('index', week_page=wk.page) }}"
+                          {% if wk.page == week_page %}selected{% endif %}>
+                    {{ wk.label }}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
           <div class="table-responsive">
             <table class="table table-striped table-hover mb-0 align-middle text-center">
               <thead class="table-light">
@@ -238,6 +258,13 @@
               {% endfor %}
               </tbody>
             </table>
+          </div>
+          <div class="px-3 py-2 border-top d-flex justify-content-between align-items-center">
+            <a class="btn btn-sm btn-outline-secondary {% if week_page <= 1 %}disabled{% endif %}"
+               href="{{ url_for('index', week_page=week_page-1) }}">Anterior</a>
+            <span class="small text-muted">Página {{ week_page }} de {{ total_pages }}</span>
+            <a class="btn btn-sm btn-outline-secondary {% if week_page >= total_pages %}disabled{% endif %}"
+               href="{{ url_for('index', week_page=week_page+1) }}">Siguiente</a>
           </div>
         {% else %}
           <p class="text-muted p-3 mb-0 text-center">
