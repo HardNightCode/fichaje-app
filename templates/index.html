@@ -316,6 +316,7 @@
 </div>
 
 <script>
+  const finMargenIso = "{{ fin_margen_iso or '' }}";
   const modalExtra = new bootstrap.Modal(document.getElementById('modalExtra'));
   const btnEnviarExtra = document.getElementById('btnEnviarExtra');
   const selectMotivo = document.getElementById('selectMotivo');
@@ -385,9 +386,15 @@
   function fichar(accion) {
     document.getElementById('accion').value = accion;
     if (accion === 'salida') {
-      accionPendiente = accion;
-      modalExtra.show();
-      return;
+      if (finMargenIso) {
+        const finDt = new Date(finMargenIso);
+        const ahora = new Date();
+        if (ahora > finDt) {
+          accionPendiente = accion;
+          modalExtra.show();
+          return;
+        }
+      }
     }
     enviarFichaje(accion);
   }

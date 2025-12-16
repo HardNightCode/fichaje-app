@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 from collections import OrderedDict
 
 from flask import render_template, redirect, url_for, request
@@ -14,6 +14,37 @@ from ..logic import (
     usuario_tiene_flexible,
 )
 from ..models import Registro
+
+
+def _fin_con_margen(usuario, fecha_local):
+    schedule = obtener_horario_aplicable(usuario, fecha_local)
+    if not schedule:
+        return None
+
+    settings = getattr(usuario, "schedule_settings", None)
+    margin = settings.margin_minutes if settings and settings.margin_minutes is not None else 0
+
+    if schedule.use_per_day:
+        dia = next((d for d in schedule.days if d.day_of_week == fecha_local.weekday()), None)
+        if not dia:
+            return None
+        start_t = dia.start_time
+        end_t = dia.end_time
+    else:
+        start_t = schedule.start_time
+        end_t = schedule.end_time
+
+    if not end_t:
+        return None
+    if not start_t:
+        start_t = time.min
+
+    inicio_dt = datetime.combine(fecha_local, start_t)
+    fin_dt = datetime.combine(fecha_local, end_t)
+    if fin_dt <= inicio_dt:
+        fin_dt += timedelta(days=1)
+
+    return fin_dt + timedelta(minutes=margin)
 
 
 def register_dashboard_routes(app):
@@ -236,6 +267,9 @@ def register_dashboard_routes(app):
         else:
             bloquear_descanso = False
 
+        fin_con_margen_local = _fin_con_margen(current_user, hoy)
+        fin_margen_iso = fin_con_margen_local.isoformat() if fin_con_margen_local else ""
+
         return render_template(
             "index.html",
             intervalos_usuario=intervalos_semana,
@@ -254,4 +288,5 @@ def register_dashboard_routes(app):
             week_page=week_page_int,
             total_pages=total_pages,
             semanas_meta=semanas_meta,
+            fin_margen_iso=fin_margen_iso,
         )
