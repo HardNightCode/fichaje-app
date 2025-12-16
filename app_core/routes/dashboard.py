@@ -135,7 +135,8 @@ def register_dashboard_routes(app):
             domingo = lunes + timedelta(days=6)
             semana_actual_label = f"Semana {wk} ({lunes.strftime('%d/%m')} - {domingo.strftime('%d/%m')})"
 
-        resumen_horas = formatear_timedelta(total_trabajo_semana if intervalos_semana else total_trabajo_hoy)
+        resumen_horas_hoy = formatear_timedelta(total_trabajo_hoy) if total_trabajo_hoy.total_seconds() > 0 else None
+        resumen_horas_semana = formatear_timedelta(total_trabajo_semana) if intervalos_semana else formatear_timedelta(total_trabajo_hoy)
 
         ubicaciones_usuario = obtener_ubicaciones_usuario(current_user)
         tiene_ubicaciones = len(ubicaciones_usuario) > 0
@@ -238,7 +239,8 @@ def register_dashboard_routes(app):
         return render_template(
             "index.html",
             intervalos_usuario=intervalos_semana,
-            resumen_horas=resumen_horas,
+            resumen_horas_hoy=resumen_horas_hoy,
+            resumen_horas_semana=resumen_horas_semana,
             ubicaciones_usuario=ubicaciones_usuario,
             tiene_ubicaciones=tiene_ubicaciones,
             tiene_flexible=tiene_flexible,
