@@ -297,6 +297,7 @@ def register_admin_registro_routes(app):
             ubicaciones_definidas=ubicaciones_definidas,
             ubicacion_filtro=ubicacion_filtro,
             modo_conteo=modo_conteo,
+            formatear_timedelta=formatear_timedelta,
         )
 
     @app.route("/admin/registros/<int:registro_id>/editar", methods=["GET", "POST"])
