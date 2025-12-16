@@ -17,6 +17,43 @@ from ..logic import (
 )
 from ..models import Kiosk, KioskUser, Registro, RegistroJustificacion, User
 from ..config import to_local, local_to_utc_naive
+
+
+def calcular_fin_con_margen(usuario, fecha_local):
+    """
+    Devuelve datetime local del fin de jornada con margen aplicado.
+    Si no hay horario o fin definido, devuelve None.
+    """
+    schedule = obtener_horario_aplicable(usuario, fecha_local)
+    if not schedule:
+        return None
+
+    # Margen en minutos desde settings
+    settings = getattr(usuario, "schedule_settings", None)
+    margin = settings.margin_minutes if settings and settings.margin_minutes is not None else 0
+
+    if schedule.use_per_day:
+        dia = next((d for d in schedule.days if d.day_of_week == fecha_local.weekday()), None)
+        if not dia:
+            return None
+        start_t = dia.start_time
+        end_t = dia.end_time
+    else:
+        start_t = schedule.start_time
+        end_t = schedule.end_time
+        if not end_t:
+            return None
+
+    if not start_t:
+        start_t = datetime.min.time()
+
+    inicio_dt = datetime.combine(fecha_local, start_t)
+    fin_dt = datetime.combine(fecha_local, end_t)
+    if fin_dt <= inicio_dt:
+        fin_dt += timedelta(days=1)
+
+    fin_dt += timedelta(minutes=margin)
+    return fin_dt
 from geo_utils import is_within_radius
 
 
@@ -301,50 +338,23 @@ def register_fichaje_routes(app):
         db.session.add(registro)
         db.session.flush()
 
-        # Si es una SALIDA, comprobamos horas extra y pedimos justificación
+        # Si es una SALIDA, comprobamos horas extra y pedimos justificación solo si se pasa de la hora fin + margen
         if accion == "salida":
             motivo_extra = (request.form.get("motivo_extra") or "").strip()
             detalle_extra = (request.form.get("detalle_extra") or "").strip()
 
-            # Registros del día (en horario local) para calcular trabajado/esperado
             fecha_local = to_local(registro.momento).date()
-            start_local = datetime.combine(fecha_local, datetime.min.time())
-            end_local = datetime.combine(fecha_local, datetime.max.time())
-            start_utc = local_to_utc_naive(start_local)
-            end_utc = local_to_utc_naive(end_local)
+            fin_con_margen_local = calcular_fin_con_margen(usuario_objetivo, fecha_local)
+            fin_con_margen_utc = local_to_utc_naive(fin_con_margen_local) if fin_con_margen_local else None
 
-            regs_dia = (
-                Registro.query
-                .filter(
-                    Registro.usuario_id == usuario_objetivo.id,
-                    Registro.momento >= start_utc,
-                    Registro.momento <= end_utc,
-                )
-                .order_by(Registro.momento.asc())
-                .all()
-            )
+            require_motivo = False
+            if fin_con_margen_utc and registro.momento > fin_con_margen_utc:
+                require_motivo = True
 
-            intervalos_dia = agrupar_registros_en_intervalos(regs_dia)
-            trabajos_fecha = {}
-            for it in intervalos_dia:
-                extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
-                it.horas_extra = extra_td
-                it.horas_defecto = defecto_td
-                trabajo_real = getattr(it, "trabajo_real", None) or timedelta(0)
-                fecha_it = it.entrada_momento.date() if it.entrada_momento else (
-                    it.salida_momento.date() if it.salida_momento else fecha_local
-                )
-                trabajos_fecha[fecha_it] = trabajos_fecha.get(fecha_it, timedelta()) + trabajo_real
-
-            # Esperado diario
-            schedule = obtener_horario_aplicable(usuario_objetivo, fecha_local)
-            esperado_dia = calcular_jornada_teorica(schedule, fecha_local) if schedule else timedelta(0)
-            trabajado_dia = trabajos_fecha.get(fecha_local, timedelta())
-
-            if trabajado_dia > esperado_dia:
+            if require_motivo:
                 if not motivo_extra:
                     db.session.rollback()
-                    flash("Has superado tu jornada prevista hoy. Indica un motivo para registrar la salida.", "error")
+                    flash("Has superado tu hora prevista. Indica un motivo para registrar la salida.", "error")
                     return redirect(url_for(redirect_home))
                 just = RegistroJustificacion(
                     registro_id=registro.id,
