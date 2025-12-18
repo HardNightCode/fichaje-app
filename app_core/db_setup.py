@@ -1,5 +1,5 @@
 from .extensions import db
-from .models import User, Location, CompanyInfo
+from .models import User, Location, CompanyInfo, QRToken
 
 
 def crear_tablas():

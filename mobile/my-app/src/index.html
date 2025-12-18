@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fichaje</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #e7f0ff;
+      --bg: #0f172a;
+      --card: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1e293b, #0b1224 55%);
+      color: var(--text);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .shell {
+      width: 100%; max-width: 420px;
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: var(--radius);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      padding: 20px;
+    }
+    h3 { margin: 0 0 4px; }
+    p.sub { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+    label { display:block; margin-bottom:6px; color: var(--muted); font-size: 13px; }
+    input, button, select {
+      width: 100%; padding: 12px 14px;
+      border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);
+      background: #0b1224; color: var(--text); font-size: 15px;
+    }
+    input:focus, select:focus { outline: 2px solid var(--primary); }
+    .btn {
+      border: none; cursor: pointer; font-weight: 600;
+      background: var(--primary); color: #fff; transition: transform .1s ease, box-shadow .2s;
+      box-shadow: 0 10px 30px rgba(37, 99, 235, 0.35);
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-ghost { background: #0b1224; border: 1px solid rgba(255,255,255,0.08); color: var(--text); box-shadow: none; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 48%; }
+    .hint { opacity: .8; font-size: 13px; margin-top: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <h3>Conectar a tu dominio</h3>
+    <p class="sub">Accede a tu instancia de fichaje, con sesión persistente y escaneo QR.</p>
+
+    <label for="domain">Dominio</label>
+    <input id="domain" placeholder="https://miinstancia.com" autocomplete="off" />
+
+    <div class="row">
+      <button id="connect" class="btn">Conectar</button>
+      <button id="scan" class="btn btn-ghost">Escanear QR</button>
+    </div>
+
+    <p class="hint">La sesión se mantiene en el WebView mientras la cookie siga vigente.</p>
+  </div>
+
+  <script type="module">
+    import { Preferences } from '@capacitor/preferences';
+    import { BarcodeScanner } from '@capacitor/barcode-scanner';
+    import { registerPlugin } from '@capacitor/core';
+    import { Geolocation } from '@capacitor/geolocation';
+
+    const WebviewLoader = registerPlugin('WebviewLoader');
+    const domainInput = document.getElementById('domain');
+
+    function normalizeUrl(url) {
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      return url.replace(/\/+$/, '');
+    }
+
+    async function goTo(url) {
+      await WebviewLoader.loadUrl({ url });
+    }
+
+    document.getElementById('connect').onclick = async () => {
+      let url = domainInput.value.trim();
+      if (!url) return alert('Introduce un dominio');
+      url = normalizeUrl(url);
+      await Preferences.set({ key: 'domain', value: url });
+      await goTo(url);
+    };
+
+    document.getElementById('scan').onclick = async () => {
+      const perm = await BarcodeScanner.checkPermission({ force: true });
+      if (!perm.granted) return alert('Permiso de cámara denegado');
+
+      const result = await BarcodeScanner.startScan();
+      const content = result?.content ?? '';
+      if (!content) return alert('No se detectó QR');
+
+      let urlObj;
+      try { urlObj = new URL(content); }
+      catch { return alert('QR no válido'); }
+
+      const domain = urlObj.searchParams.get('domain');
+      const token  = urlObj.searchParams.get('token');
+
+      if (!domain || !token) return alert('QR sin domain/token');
+
+      const d = normalizeUrl(domain);
+      await Preferences.set({ key: 'domain', value: d });
+      await goTo(`${d}/qr_login?token=${encodeURIComponent(token)}`);
+    };
+
+    (async () => {
+      const saved = await Preferences.get({ key: 'domain' });
+      if (saved.value) domainInput.value = saved.value;
+      // Solicita permiso de geolocalización al inicio para que el WebView la tenga disponible
+      try { await Geolocation.requestPermissions(); } catch (e) { console.warn(e); }
+    })();
+  </script>
+</body>
+</html>

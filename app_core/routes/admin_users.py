@@ -7,7 +7,9 @@ from ..logic import (
     get_or_create_schedule_settings,
     obtener_ubicaciones_usuario,
 )
-from ..models import Location, Schedule, User
+from ..models import Location, Schedule, User, QRToken
+from ..routes.auth_routes import crear_qr_token_db
+from datetime import datetime
 
 
 def register_admin_user_routes(app):
@@ -185,11 +187,45 @@ def register_admin_user_routes(app):
         ubicaciones_usuario = obtener_ubicaciones_usuario(user)
         horarios_usuario = list(user.schedules)
 
-        return render_template(
-            "admin_usuario_ficha.html",
-            usuario=user,
-            ubicaciones_usuario=ubicaciones_usuario,
-            horarios=horarios,
-            horarios_usuario=horarios_usuario,
-            settings=settings,
-        )
+    return render_template(
+        "admin_usuario_ficha.html",
+        usuario=user,
+        ubicaciones_usuario=ubicaciones_usuario,
+        horarios=horarios,
+        horarios_usuario=horarios_usuario,
+        settings=settings,
+    )
+
+    @app.route("/admin/usuarios/<int:user_id>/qr", methods=["GET", "POST"])
+    @admin_required
+    def admin_usuario_qr(user_id):
+        usuario = User.query.get_or_404(user_id)
+
+        if request.method == "POST":
+            action = request.form.get("action", "create")
+            if action == "create":
+                domain = request.form.get("domain", "").strip() or request.host_url.rstrip("/")
+                tipo = request.form.get("tipo", "always")
+                fecha_hasta = request.form.get("fecha_hasta", "").strip()
+                expires = None
+                if tipo == "until" and fecha_hasta:
+                    try:
+                        dt = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                        expires = datetime(dt.year, dt.month, dt.day, 23, 59, 59)
+                    except ValueError:
+                        flash("Fecha no válida.", "error")
+                        return redirect(url_for("admin_usuario_qr", user_id=usuario.id))
+                crear_qr_token_db(usuario, domain, expires)
+                flash("QR generado correctamente.", "success")
+                return redirect(url_for("admin_usuario_qr", user_id=usuario.id))
+            elif action == "delete":
+                token_id = request.form.get("token_id")
+                qr = QRToken.query.filter_by(id=token_id, user_id=usuario.id).first()
+                if qr:
+                    db.session.delete(qr)
+                    db.session.commit()
+                    flash("QR eliminado.", "success")
+                return redirect(url_for("admin_usuario_qr", user_id=usuario.id))
+
+        tokens = QRToken.query.filter_by(user_id=usuario.id).order_by(QRToken.created_at.desc()).all()
+        return render_template("admin_usuario_qr.html", usuario=usuario, tokens=tokens)

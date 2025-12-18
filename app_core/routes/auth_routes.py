@@ -9,7 +9,9 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from ..auth import admin_required
 from ..extensions import db
-from ..models import User
+from ..models import User, QRToken
+from ..extensions import db
+from secrets import token_urlsafe
 
 
 def _get_qr_serializer():
@@ -24,6 +26,12 @@ def generar_token_qr(username: str):
     """
     s = _get_qr_serializer()
     return s.dumps({"u": username})
+def crear_qr_token_db(user: User, domain: str, expires_at=None):
+    tok = token_urlsafe(32)
+    qr = QRToken(user_id=user.id, token=tok, domain=domain, expires_at=expires_at)
+    db.session.add(qr)
+    db.session.commit()
+    return qr
 
 
 def register_auth_routes(app):
@@ -110,22 +118,27 @@ def register_auth_routes(app):
             flash("Token de acceso no proporcionado.", "error")
             return redirect(url_for("login"))
 
-        s = _get_qr_serializer()
-        try:
-            data = s.loads(token, max_age=600)  # 10 minutos
-        except SignatureExpired:
-            flash("Token caducado. Solicita un nuevo QR.", "error")
-            return redirect(url_for("login"))
-        except BadSignature:
-            flash("Token inválido.", "error")
-            return redirect(url_for("login"))
+        # Primero buscamos token persistente en BD (QR móvil)
+        qr = QRToken.query.filter_by(token=token, revoked=False).first()
+        if qr:
+            if qr.expires_at and qr.expires_at < datetime.utcnow():
+                flash("Token caducado. Solicita un nuevo QR.", "error")
+                return redirect(url_for("login"))
+            user = qr.user
+        else:
+            # Compatibilidad con tokens firmados efímeros
+            s = _get_qr_serializer()
+            try:
+                data = s.loads(token, max_age=600)  # 10 minutos
+            except SignatureExpired:
+                flash("Token caducado. Solicita un nuevo QR.", "error")
+                return redirect(url_for("login"))
+            except BadSignature:
+                flash("Token inválido.", "error")
+                return redirect(url_for("login"))
+            username = data.get("u")
+            user = User.query.filter_by(username=username).first() if username else None
 
-        username = data.get("u")
-        if not username:
-            flash("Token sin usuario.", "error")
-            return redirect(url_for("login"))
-
-        user = User.query.filter_by(username=username).first()
         if not user:
             flash("Usuario no encontrado.", "error")
             return redirect(url_for("login"))

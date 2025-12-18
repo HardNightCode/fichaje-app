@@ -1,0 +1,14 @@
+{
+  "appId": "com.nexus.fichaje",
+  "appName": "Fichaje",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "cleartext": true
+  },
+  "allowNavigation": [
+    "https://fichaje.nexusspsolutions.com/*",
+    "https://*/*",
+    "http://*/*"
+  ]
+}
