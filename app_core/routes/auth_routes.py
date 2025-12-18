@@ -1,14 +1,29 @@
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, url_for, current_app, jsonify
 from flask_login import (
     current_user,
     login_required,
     login_user,
     logout_user,
 )
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 from ..auth import admin_required
 from ..extensions import db
 from ..models import User
+
+
+def _get_qr_serializer():
+    secret = current_app.config.get("SECRET_KEY", "cambia-esta-clave-por-una-mas-segura")
+    return URLSafeTimedSerializer(secret_key=secret, salt="qr-login")
+
+
+def generar_token_qr(username: str):
+    """
+    Helper para generar token de login por QR (expira a los 10 minutos).
+    Se puede usar desde consola de Flask o añadir una pequeña vista de administración.
+    """
+    s = _get_qr_serializer()
+    return s.dumps({"u": username})
 
 
 def register_auth_routes(app):
@@ -82,6 +97,45 @@ def register_auth_routes(app):
         logout_user()
         flash("Has cerrado sesión", "success")
         return redirect(url_for("login"))
+
+    @app.route("/qr_login")
+    def qr_login():
+        """
+        Login mediante token firmado (para QR).
+        Uso: /qr_login?token=...
+        El token incluye el username y expira (10 minutos).
+        """
+        token = request.args.get("token", "").strip()
+        if not token:
+            flash("Token de acceso no proporcionado.", "error")
+            return redirect(url_for("login"))
+
+        s = _get_qr_serializer()
+        try:
+            data = s.loads(token, max_age=600)  # 10 minutos
+        except SignatureExpired:
+            flash("Token caducado. Solicita un nuevo QR.", "error")
+            return redirect(url_for("login"))
+        except BadSignature:
+            flash("Token inválido.", "error")
+            return redirect(url_for("login"))
+
+        username = data.get("u")
+        if not username:
+            flash("Token sin usuario.", "error")
+            return redirect(url_for("login"))
+
+        user = User.query.filter_by(username=username).first()
+        if not user:
+            flash("Usuario no encontrado.", "error")
+            return redirect(url_for("login"))
+
+        login_user(user)
+        flash("Sesión iniciada mediante QR.", "success")
+
+        if user.role == "kiosko":
+            return redirect(url_for("kiosko_panel"))
+        return redirect(url_for("index"))
 
     @app.route("/register", methods=["GET", "POST"])
     @admin_required
