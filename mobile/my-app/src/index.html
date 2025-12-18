@@ -70,7 +70,7 @@
 
   <script type="module">
     import { Preferences } from '@capacitor/preferences';
-    import { BarcodeScanner } from '@capacitor/barcode-scanner';
+    import { CapacitorBarcodeScanner } from '@capacitor/barcode-scanner';
     import { registerPlugin } from '@capacitor/core';
     import { Geolocation } from '@capacitor/geolocation';
 
@@ -95,10 +95,10 @@
     };
 
     document.getElementById('scan').onclick = async () => {
-      const perm = await BarcodeScanner.checkPermission({ force: true });
+      const perm = await CapacitorBarcodeScanner.checkPermission({ force: true });
       if (!perm.granted) return alert('Permiso de cámara denegado');
 
-      const result = await BarcodeScanner.startScan();
+      const result = await CapacitorBarcodeScanner.startScan();
       const content = result?.content ?? '';
       if (!content) return alert('No se detectó QR');
 
