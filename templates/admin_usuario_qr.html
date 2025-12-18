@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}QR de acceso - {{ usuario.username }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-3">QR de acceso - {{ usuario.username }}</h1>
+
+<div class="card mb-4">
+  <div class="card-header">Generar nuevo QR</div>
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      <input type="hidden" name="action" value="create">
+      <div class="col-md-6">
+        <label class="form-label">Dominio (se rellena con el actual)</label>
+        <input type="text" name="domain" class="form-control" value="{{ request.host_url.rstrip('/') }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Validez</label>
+        <select name="tipo" id="tipo_qr" class="form-select">
+          <option value="always">Válido siempre</option>
+          <option value="until">Válido hasta...</option>
+        </select>
+      </div>
+      <div class="col-md-6" id="grupo-fecha" style="display:none;">
+        <label class="form-label">Fecha de caducidad</label>
+        <input type="date" name="fecha_hasta" class="form-control">
+      </div>
+      <div class="col-12 d-flex justify-content-end">
+        <button type="submit" class="btn btn-primary">Generar QR</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">QR existentes</div>
+  <div class="card-body">
+    {% if tokens %}
+      <div class="table-responsive">
+        <table class="table table-striped align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Token</th>
+              <th>Dominio</th>
+              <th>Caduca</th>
+              <th>Creado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tokens %}
+              <tr>
+                <td><code>{{ t.token }}</code></td>
+                <td>{{ t.domain or request.host_url.rstrip('/') }}</td>
+                <td>
+                  {% if t.expires_at %}
+                    {{ (t.expires_at|to_local).strftime("%d/%m/%Y") }}
+                  {% else %}
+                    Sin caducidad
+                  {% endif %}
+                </td>
+                <td>{{ (t.created_at|to_local).strftime("%d/%m/%Y %H:%M") }}</td>
+                <td class="text-end">
+                  <form method="post" class="d-inline">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="token_id" value="{{ t.id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                      Eliminar
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted mb-0">No hay QR generados.</p>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  const tipoSel = document.getElementById('tipo_qr');
+  const grupoFecha = document.getElementById('grupo-fecha');
+  function toggleFecha() {
+    grupoFecha.style.display = tipoSel.value === 'until' ? '' : 'none';
+  }
+  tipoSel.addEventListener('change', toggleFecha);
+  toggleFecha();
+</script>
+{% endblock %}

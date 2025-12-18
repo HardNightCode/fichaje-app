@@ -124,6 +124,23 @@ class RegistroJustificacion(db.Model):
     registro = db.relationship("Registro", backref=db.backref("justificacion", uselist=False))
 
 
+class QRToken(db.Model):
+    """
+    Token de acceso por QR para app móvil.
+    """
+    __tablename__ = "qr_token"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    token = db.Column(db.String(255), unique=True, nullable=False)
+    domain = db.Column(db.String(255), nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    revoked = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    user = db.relationship("User", backref=db.backref("qr_tokens", cascade="all, delete-orphan"))
+
+
 class UserLocation(db.Model):
     __tablename__ = "user_location"
 
