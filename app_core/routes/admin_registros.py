@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import flash, redirect, render_template, request, url_for, session
 from flask_login import current_user, login_required
 from flask_weasyprint import HTML, render_pdf
 
@@ -77,6 +77,7 @@ def register_admin_registro_routes(app):
             .all()
         )
 
+        # Valores iniciales
         usuario_seleccionado = "all"
         tipo_periodo = "rango"
         fecha_desde = ""
@@ -87,6 +88,11 @@ def register_admin_registro_routes(app):
         intervalos = []
         ubicacion_filtro = "all"
         modo_conteo = "semanal"
+        accion = "filtrar"
+
+        # Recuperar filtros guardados en sesión si GET y existen
+        filtros_guardados = session.get("admin_registros_filtros", {})
+        restored_from_session = False
 
         if request.method == "POST":
             usuario_seleccionado = request.form.get("usuario_id", "all")
@@ -99,8 +105,34 @@ def register_admin_registro_routes(app):
             ubicacion_filtro = request.form.get("ubicacion_filtro", "all")
             modo_conteo = request.form.get("modo_conteo", "semanal")
 
-            mes = int(mes_str) if mes_str else None
+            session["admin_registros_filtros"] = {
+                "usuario_id": usuario_seleccionado,
+                "tipo_periodo": tipo_periodo,
+                "fecha_desde": fecha_desde,
+                "fecha_hasta": fecha_hasta,
+                "fecha_semana": fecha_semana,
+                "mes": mes_str,
+                "ubicacion_filtro": ubicacion_filtro,
+                "modo_conteo": modo_conteo,
+            }
+        elif filtros_guardados:
+            usuario_seleccionado = filtros_guardados.get("usuario_id", "all")
+            tipo_periodo = filtros_guardados.get("tipo_periodo", "rango")
+            fecha_desde = filtros_guardados.get("fecha_desde", "")
+            fecha_hasta = filtros_guardados.get("fecha_hasta", "")
+            fecha_semana = filtros_guardados.get("fecha_semana", "")
+            mes_str = filtros_guardados.get("mes", "")
+            ubicacion_filtro = filtros_guardados.get("ubicacion_filtro", "all")
+            modo_conteo = filtros_guardados.get("modo_conteo", "semanal")
+            accion = "filtrar"
+            restored_from_session = True
+        else:
+            mes_str = ""
 
+        mes = int(mes_str) if mes_str else None
+
+        # Aplicar filtros cuando procede
+        if request.method == "POST" or restored_from_session:
             query = Registro.query.join(User).order_by(Registro.momento.desc())
 
             if usuario_seleccionado != "all":
@@ -226,9 +258,9 @@ def register_admin_registro_routes(app):
 
             calcular_descanso_intervalos(intervalos, registros)
             
-            if accion == "csv":
+            if request.method == "POST" and accion == "csv":
                 return generar_csv(intervalos, modo_conteo)
-            if accion == "pdf":
+            if request.method == "POST" and accion == "pdf":
                 return generar_pdf(intervalos, tipo_periodo, modo_conteo)
 
         # Mapa usuario -> fecha -> trabajo real
