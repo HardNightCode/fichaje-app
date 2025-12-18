@@ -44,6 +44,7 @@
               <th>Dominio</th>
               <th>Caduca</th>
               <th>Creado</th>
+              <th>Imagen</th>
               <th></th>
             </tr>
           </thead>
@@ -60,6 +61,13 @@
                   {% endif %}
                 </td>
                 <td>{{ (t.created_at|to_local).strftime("%d/%m/%Y %H:%M") }}</td>
+                <td>
+                  <a class="btn btn-sm btn-outline-primary"
+                     href="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={{ ('fichaje://login?domain=' ~ (t.domain or request.host_url.rstrip('/')) ~ '&token=' ~ t.token)|urlencode }}"
+                     target="_blank">
+                    Descargar
+                  </a>
+                </td>
                 <td class="text-end">
                   <form method="post" class="d-inline">
                     <input type="hidden" name="action" value="delete">
