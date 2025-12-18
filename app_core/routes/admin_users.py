@@ -187,14 +187,14 @@ def register_admin_user_routes(app):
         ubicaciones_usuario = obtener_ubicaciones_usuario(user)
         horarios_usuario = list(user.schedules)
 
-    return render_template(
-        "admin_usuario_ficha.html",
-        usuario=user,
-        ubicaciones_usuario=ubicaciones_usuario,
-        horarios=horarios,
-        horarios_usuario=horarios_usuario,
-        settings=settings,
-    )
+        return render_template(
+            "admin_usuario_ficha.html",
+            usuario=user,
+            ubicaciones_usuario=ubicaciones_usuario,
+            horarios=horarios,
+            horarios_usuario=horarios_usuario,
+            settings=settings,
+        )
 
     @app.route("/admin/usuarios/<int:user_id>/qr", methods=["GET", "POST"])
     @admin_required
