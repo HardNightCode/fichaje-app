@@ -353,11 +353,16 @@ def usuario_tiene_intervalo_abierto(user_id: int) -> bool:
 
 def calcular_extra_y_defecto_intervalo(it):
     """
-    Calcula (horas_extra, horas_defecto) como timedeltas para un intervalo.
-
-    Además deja calculado:
+    Calcula y deja en el intervalo:
       - it.trabajo_real -> tiempo realmente trabajado en el intervalo
                            según horario + descansos.
+
+    NOTA: ya no computamos extra/defecto por intervalo porque provoca
+    restar la jornada teórica varias veces en un mismo día cuando hay
+    múltiples intervalos. El extra/defecto se obtiene agregando
+    trabajo_real por fecha (ver obtener_trabajo_y_esperado_por_periodo).
+
+    Devuelve siempre (0, 0) para extra/defecto del intervalo.
     """
     it.trabajo_real = timedelta(0)
 
@@ -452,14 +457,8 @@ def calcular_extra_y_defecto_intervalo(it):
 
     it.trabajo_real = trabajo_real
 
-    diff = trabajo_real - dur_teorica
-
-    if diff.total_seconds() > 0:
-        return diff, timedelta(0)
-    elif diff.total_seconds() < 0:
-        return timedelta(0), -diff
-    else:
-        return timedelta(0), timedelta(0)
+    # Extra/defecto se calcula a nivel de día/periodo, no por intervalo.
+    return timedelta(0), timedelta(0)
 
 
 def obtener_trabajo_y_esperado_por_periodo(usuario, trabajos_por_fecha, modo="dia"):
