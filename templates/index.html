@@ -47,7 +47,13 @@
   </div>
 </div>
 
-<div class="row justify-content-center">
+<style>
+  .week-select {
+    min-width: 210px;
+  }
+</style>
+
+<div class="row g-4 align-items-start">
   <!-- Columna izquierda: fichar + resumen -->
   <div class="col-lg-4 col-md-6 mb-4">
     <div class="card card-elevated mb-4">
@@ -146,7 +152,7 @@
   </div>
 
   <!-- Columna derecha: tabla de intervalos -->
-  <div class="col-lg-7 col-md-10">
+  <div class="col-lg-8 col-md-10">
     <div class="card card-elevated">
       <div class="card-header d-flex justify-content-between align-items-center">
         <div>
@@ -156,12 +162,12 @@
       </div>
       <div class="card-body p-0">
         {% if intervalos_usuario %}
-          <div class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center">
-            <div class="small text-muted">
+          <div class="px-3 py-2 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="small text-muted me-auto">
               {{ semana_actual_label or "Semana actual" }}
             </div>
-            <div class="d-flex gap-2">
-              <select class="form-select form-select-sm"
+            <div class="d-flex">
+              <select class="form-select form-select-sm week-select"
                       onchange="if (this.value) window.location.href=this.value;">
                 {% for wk in semanas_meta %}
                   <option value="{{ url_for('index', week_page=wk.page) }}"

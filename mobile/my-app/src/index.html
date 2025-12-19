@@ -95,12 +95,16 @@
     };
 
     document.getElementById('scan').onclick = async () => {
-      const perm = await CapacitorBarcodeScanner.checkPermission({ force: true });
-      if (!perm.granted) return alert('Permiso de cámara denegado');
-
-      const result = await CapacitorBarcodeScanner.startScan();
-      const content = result?.content ?? '';
-      if (!content) return alert('No se detectó QR');
+      // El plugin solicita permisos de cámara de forma implícita al iniciar el escaneo
+      const result = await CapacitorBarcodeScanner.scanBarcode({
+        scanInstructions: 'Enfoca el QR para iniciar sesión',
+      }).catch((err) => {
+        console.error(err);
+        alert('No se pudo abrir el escáner. Verifica permisos de cámara.');
+        return null;
+      });
+      const content = result?.ScanResult ?? '';
+      if (!content) return;
 
       let urlObj;
       try { urlObj = new URL(content); }
