@@ -49,11 +49,15 @@
 
 <style>
   .week-select {
-    min-width: 210px;
+    min-width: 240px;
+    padding-right: 3rem; /* deja espacio entre el texto y el icono de despliegue */
+    background-position: right 0.9rem center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>
 
-<div class="row g-4 align-items-start">
+<div class="row g-4 align-items-stretch">
   <!-- Columna izquierda: fichar + resumen -->
   <div class="col-lg-4 col-md-6 mb-4">
     <div class="card card-elevated mb-4">
