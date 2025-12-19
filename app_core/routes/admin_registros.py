@@ -305,7 +305,9 @@ def register_admin_registro_routes(app):
                 intervalos_por_usuario_fecha[usuario.id][fecha_base].append(it)
                 schedule = obtener_horario_aplicable(usuario, fecha_base)
                 esperado_td = calcular_jornada_teorica(schedule, fecha_base) if schedule else timedelta(0)
-                esperado_por_usuario_fecha[usuario.id][fecha_base] += esperado_td
+                # Establecemos el esperado una sola vez por fecha (no acumulamos por intervalo)
+                if esperado_por_usuario_fecha[usuario.id][fecha_base] == timedelta(0):
+                    esperado_por_usuario_fecha[usuario.id][fecha_base] = esperado_td
                 trabajos_por_usuario_fecha[username][fecha_base] = trabajos_por_usuario_fecha[username].get(fecha_base, timedelta()) + trabajo_real
 
         # Asignar extra/defecto agregados por día al primer intervalo de cada fecha
