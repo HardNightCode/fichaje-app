@@ -265,6 +265,8 @@ def register_admin_registro_routes(app):
 
         # Mapa usuario -> fecha -> trabajo real
         trabajos_por_usuario_fecha = {}
+        intervalos_por_usuario_fecha = defaultdict(lambda: defaultdict(list))
+        esperado_por_usuario_fecha = defaultdict(lambda: defaultdict(timedelta))
 
         for it in intervalos:
             if not it.usuario:
@@ -284,8 +286,8 @@ def register_admin_registro_routes(app):
                     descanso_simple = timedelta(0)
                 trabajo_estimado = dur - descanso_simple
                 if trabajo_estimado.total_seconds() > 0:
-                    trabajo_real = trabajo_estimado
-                    it.trabajo_real = trabajo_real
+                trabajo_real = trabajo_estimado
+                it.trabajo_real = trabajo_real
 
             if trabajo_real.total_seconds() <= 0:
                 continue
@@ -293,12 +295,37 @@ def register_admin_registro_routes(app):
             usuario = it.usuario
             username = usuario.username
             trabajos_por_usuario_fecha.setdefault(username, {})
-
             fecha_base = it.entrada_momento.date() if it.entrada_momento else (
                 it.salida_momento.date() if it.salida_momento else None
             )
+
             if fecha_base:
+                intervalos_por_usuario_fecha[usuario.id][fecha_base].append(it)
+                schedule = obtener_horario_aplicable(usuario, fecha_base)
+                esperado_td = calcular_jornada_teorica(schedule, fecha_base) if schedule else timedelta(0)
+                esperado_por_usuario_fecha[usuario.id][fecha_base] += esperado_td
                 trabajos_por_usuario_fecha[username][fecha_base] = trabajos_por_usuario_fecha[username].get(fecha_base, timedelta()) + trabajo_real
+
+        # Asignar extra/defecto agregados por día al primer intervalo de cada fecha
+        for uid, fechas in intervalos_por_usuario_fecha.items():
+            for fecha_base, lista in fechas.items():
+                lista_ordenada = sorted(
+                    lista,
+                    key=lambda x: x.entrada_momento or x.salida_momento or datetime.min,
+                )
+                trabajado = sum((getattr(it, "trabajo_real", timedelta(0)) or timedelta(0) for it in lista_ordenada), timedelta(0))
+                esperado = esperado_por_usuario_fecha[uid][fecha_base]
+                diff = trabajado - esperado
+                extra_d = diff if diff.total_seconds() > 0 else timedelta(0)
+                defecto_d = -diff if diff.total_seconds() < 0 else timedelta(0)
+
+                for idx, it in enumerate(lista_ordenada):
+                    if idx == 0:
+                        it.horas_extra = extra_d
+                        it.horas_defecto = defecto_d
+                    else:
+                        it.horas_extra = None
+                        it.horas_defecto = None
 
         horas_por_usuario = {}
         for username, trabajos_fecha in trabajos_por_usuario_fecha.items():

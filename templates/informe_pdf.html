@@ -63,10 +63,18 @@
               <td>{{ it.ubicacion_label or '' }}</td>
               <td>{{ formatear_timedelta(it.descanso_total) }}</td>
               <td style="color: {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}#2e7d32{% else %}#555{% endif %};">
-                {{ formatear_timedelta(it.horas_extra) }}
+                {% if it.horas_extra is none %}
+                  —
+                {% else %}
+                  {{ formatear_timedelta(it.horas_extra) }}
+                {% endif %}
               </td>
               <td style="color: {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}#c62828{% else %}#555{% endif %};">
-                {{ formatear_timedelta(it.horas_defecto) }}
+                {% if it.horas_defecto is none %}
+                  —
+                {% else %}
+                  {{ formatear_timedelta(it.horas_defecto) }}
+                {% endif %}
               </td>
             </tr>
             {% endfor %}
