@@ -4,6 +4,8 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.GeolocationPermissions;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -27,7 +29,15 @@ public class WebviewLoaderPlugin extends Plugin {
       WebSettings settings = webView.getSettings();
       settings.setJavaScriptEnabled(true);
       settings.setDomStorageEnabled(true);
+      settings.setDatabaseEnabled(true);
+      settings.setGeolocationEnabled(true);
       settings.setSupportMultipleWindows(false);
+      webView.setWebChromeClient(new WebChromeClient() {
+        @Override
+        public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+          callback.invoke(origin, true, false); // otorgar permisos de geolocalización al WebView
+        }
+      });
       webView.setWebViewClient(new WebViewClient() {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
