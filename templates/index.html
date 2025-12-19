@@ -55,22 +55,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .recent-card {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-  .recent-card .card-body {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  .recent-card .table-responsive {
-    flex: 1;
-  }
 </style>
 
-<div class="row g-4 align-items-stretch">
+<div class="row g-4 align-items-start">
   <!-- Columna izquierda: fichar + resumen -->
   <div class="col-lg-4 col-md-6 mb-4">
     <div class="card card-elevated mb-4">
@@ -170,7 +157,7 @@
 
   <!-- Columna derecha: tabla de intervalos -->
   <div class="col-lg-8 col-md-10">
-    <div class="card card-elevated recent-card">
+    <div class="card card-elevated">
       <div class="card-header d-flex justify-content-between align-items-center">
         <div>
           <span class="fichaje-header text-uppercase small d-block">Tus fichajes recientes</span>
