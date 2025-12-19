@@ -16,6 +16,7 @@ from ..logic import (
     calcular_duracion_trabajada_intervalo,
     calcular_extra_y_defecto_intervalo,
     calcular_horas_trabajadas,
+    calcular_jornada_teorica,
     determinar_ubicacion_por_coordenadas,
     formatear_timedelta,
     local_to_utc_naive,
