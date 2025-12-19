@@ -286,8 +286,8 @@ def register_admin_registro_routes(app):
                     descanso_simple = timedelta(0)
                 trabajo_estimado = dur - descanso_simple
                 if trabajo_estimado.total_seconds() > 0:
-                trabajo_real = trabajo_estimado
-                it.trabajo_real = trabajo_real
+                    trabajo_real = trabajo_estimado
+                    it.trabajo_real = trabajo_real
 
             if trabajo_real.total_seconds() <= 0:
                 continue
