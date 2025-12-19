@@ -53,7 +53,8 @@ def _build_user_sections(intervalos, modo_conteo):
             intervalos_por_usuario_fecha[uid][fecha_base].append(it)
             schedule = obtener_horario_aplicable(it.usuario, fecha_base)
             esperado_td = calcular_jornada_teorica(schedule, fecha_base) if schedule else timedelta(0)
-            esperado_por_usuario_fecha[uid][fecha_base] += esperado_td
+            if esperado_por_usuario_fecha[uid][fecha_base] == timedelta(0):
+                esperado_por_usuario_fecha[uid][fecha_base] = esperado_td
             trabajos_por_usuario_fecha[it.usuario.username][fecha_base] = trabajos_por_usuario_fecha[it.usuario.username].get(fecha_base, timedelta()) + trabajo_real
 
     def to_td(val):
