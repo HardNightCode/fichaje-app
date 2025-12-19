@@ -239,15 +239,19 @@
                     <span class="text-muted">Sin datos</span>
                   {% endif %}
               </td>
-              <td class="{% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}text-success{% else %}text-muted{% endif %}">
-                {% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}
+              <td class="{% if it.horas_extra and it.horas_extra.total_seconds() > 0 %}text-success{% elif it.horas_extra is none %}text-muted{% else %}text-muted{% endif %}">
+                {% if it.horas_extra is none %}
+                  &mdash;
+                {% elif it.horas_extra.total_seconds() > 0 %}
                   {{ formatear_timedelta(it.horas_extra) }}
                 {% else %}
                   00:00
                 {% endif %}
               </td>
-              <td class="{% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}text-danger{% else %}text-muted{% endif %}">
-                {% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}
+              <td class="{% if it.horas_defecto and it.horas_defecto.total_seconds() > 0 %}text-danger{% elif it.horas_defecto is none %}text-muted{% else %}text-muted{% endif %}">
+                {% if it.horas_defecto is none %}
+                  &mdash;
+                {% elif it.horas_defecto.total_seconds() > 0 %}
                   {{ formatear_timedelta(it.horas_defecto) }}
                 {% else %}
                   00:00
