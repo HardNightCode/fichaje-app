@@ -20,88 +20,96 @@
       {% endif %}
     {% endwith %}
 
-    {% if kiosk_users %}
+    {% if kiosk_cards %}
         <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-3">
-            {% for ku in kiosk_users %}
-                {% set u = ku.user %}
+            {% for card in kiosk_cards %}
+                {% set u = card.user %}
                 <div class="col">
-                    <div class="card h-100 shadow-sm {% if last_user_id == u.id %}border border-primary{% endif %}"
-                         data-user-id="{{ u.id }}"
-                         data-last-selected="{% if last_user_id == u.id %}1{% else %}0{% endif %}">
-                        <div class="card-body d-flex flex-column">
-                            <h4 class="card-title text-center mb-3">{{ u.username }}</h4>
-
-                            <form method="post" action="{{ url_for('fichar') }}" class="d-flex flex-column flex-grow-1">
-                                <input type="hidden" name="usuario_id" value="{{ u.id }}">
-                                <input type="hidden" name="lat" value="">
-                                <input type="hidden" name="lon" value="">
-                                <input type="hidden" name="motivo_extra" value="">
-                                <input type="hidden" name="detalle_extra" value="">
-
-                                <div class="mb-2">
-                                    <label for="pin_{{ u.id }}" class="form-label">
-                                        PIN (4 dígitos)
-                                    </label>
-                                    <input type="password"
-                                           class="form-control form-control-lg text-center"
-                                           id="pin_{{ u.id }}"
-                                           name="pin"
-                                           pattern="\d{4}"
-                                           inputmode="numeric"
-                                           maxlength="4"
-                                           required>
-                                </div>
-
-                                <div class="mt-2 mb-2 text-center">
-                                    <small class="text-muted">
-                                        Selecciona la acción que quieres fichar:
-                                    </small>
-                                </div>
-
-                                <div class="btn-group mb-2" role="group">
-                                    <button type="submit"
-                                            name="accion"
-                                            value="entrada"
-                                            class="btn btn-success btn-sm">
-                                        Entrada
-                                    </button>
-                                    <button type="submit"
-                                            name="accion"
-                                            value="salida"
-                                            class="btn btn-danger btn-sm">
-                                        Salida
-                                    </button>
-                                </div>
-
-                                <div class="btn-group mb-2" role="group">
-                                    <button type="submit"
-                                            name="accion"
-                                            value="descanso_inicio"
-                                            class="btn btn-warning btn-sm">
-                                        Inicio descanso
-                                    </button>
-                                    <button type="submit"
-                                            name="accion"
-                                            value="descanso_fin"
-                                            class="btn btn-warning btn-sm">
-                                        Fin descanso
-                                    </button>
-                                </div>
-
-                                <div class="mt-auto text-center">
-                                    <small class="text-muted d-block">
-                                        La ubicación se obtiene automáticamente del dispositivo.
-                                    </small>
-                                </div>
-                            </form>
+                    <button type="button"
+                            class="card h-100 shadow-sm text-decoration-none text-dark kiosk-user-card {% if last_user_id == u.id %}border border-primary{% endif %}"
+                            data-user-id="{{ u.id }}"
+                            data-username="{{ u.username }}"
+                            data-tiene-ubicaciones="{{ 1 if card.tiene_ubicaciones else 0 }}"
+                            data-tiene-flexible="{{ 1 if card.tiene_flexible else 0 }}"
+                            data-bloquear-entrada="{{ 1 if card.bloquear_entrada else 0 }}"
+                            data-bloquear-salida="{{ 1 if card.bloquear_salida else 0 }}"
+                            data-tiene-descanso="{{ 1 if card.tiene_descanso else 0 }}"
+                            data-descanso-es-flexible="{{ 1 if card.descanso_es_flexible else 0 }}"
+                            data-descanso-en-curso="{{ 1 if card.descanso_en_curso else 0 }}"
+                            data-bloquear-descanso="{{ 1 if card.bloquear_descanso else 0 }}"
+                            data-last-selected="{% if last_user_id == u.id %}1{% else %}0{% endif %}">
+                        <div class="card-body d-flex flex-column justify-content-center">
+                            <h4 class="card-title text-center mb-1">{{ u.username }}</h4>
+                            <small class="text-muted text-center">Toca para fichar</small>
                         </div>
-                    </div>
+                    </button>
                 </div>
             {% endfor %}
         </div>
     {% else %}
         <p>No hay usuarios asignados a este kiosko.</p>
     {% endif %}
+</div>
+
+<div class="modal fade" id="kioskUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="kioskModalTitle">Fichar</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="kioskPinStep">
+          <label class="form-label">PIN (4 dígitos)</label>
+          <input type="password"
+                 class="form-control form-control-lg text-center"
+                 id="kioskPinInput"
+                 pattern="\\d{4}"
+                 inputmode="numeric"
+                 maxlength="4"
+                 autocomplete="off"
+                 required>
+          <div class="invalid-feedback d-block d-none" id="kioskPinError"></div>
+          <button type="button" class="btn btn-primary w-100 mt-3" id="kioskPinSubmit">Continuar</button>
+        </div>
+
+        <div id="kioskActionStep" class="d-none">
+          <div class="alert alert-warning d-none" id="kioskNoLocation">
+            No tienes ninguna ubicación asignada. Contacta con el administrador.
+          </div>
+
+          <form method="post" action="{{ url_for('fichar') }}" id="kioskActionForm">
+            <input type="hidden" name="usuario_id" id="kioskUserId">
+            <input type="hidden" name="pin" id="kioskPinHidden">
+            <input type="hidden" name="accion" id="kioskAccion">
+            <input type="hidden" name="lat" value="">
+            <input type="hidden" name="lon" value="">
+            <input type="hidden" name="motivo_extra" value="">
+            <input type="hidden" name="detalle_extra" value="">
+
+            <div class="mb-2 text-center">
+              <small class="text-muted">Selecciona la acción que quieres fichar:</small>
+            </div>
+
+            <div class="btn-group w-100 mb-2" role="group">
+              <button type="button" class="btn btn-success" id="kioskEntradaBtn">Entrada</button>
+              <button type="button" class="btn btn-danger" id="kioskSalidaBtn">Salida</button>
+            </div>
+
+            <div class="btn-group w-100 mb-2 d-none" role="group" id="kioskDescansoGroup">
+              <button type="button" class="btn btn-warning" id="kioskDescansoBtn">Descanso</button>
+            </div>
+
+            <div class="text-center">
+              <small class="text-muted d-block">
+                La ubicación se obtiene automáticamente del dispositivo.
+              </small>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -133,14 +141,128 @@ document.addEventListener("DOMContentLoaded", function () {
         );
     }
 
-    // Auto-focus del PIN del último usuario si “no se cierra la sesión visual”
-    const selectedCard = document.querySelector('.card[data-last-selected="1"]');
-    if (selectedCard) {
-        const pinInput = selectedCard.querySelector('input[name="pin"]');
-        if (pinInput) {
-            pinInput.focus();
-        }
+    const modalEl = document.getElementById('kioskUserModal');
+    const modalKioskUser = new bootstrap.Modal(modalEl);
+    const pinStep = document.getElementById('kioskPinStep');
+    const actionStep = document.getElementById('kioskActionStep');
+    const pinInput = document.getElementById('kioskPinInput');
+    const pinError = document.getElementById('kioskPinError');
+    const pinSubmit = document.getElementById('kioskPinSubmit');
+    const modalTitle = document.getElementById('kioskModalTitle');
+    const noLocationAlert = document.getElementById('kioskNoLocation');
+
+    const actionForm = document.getElementById('kioskActionForm');
+    const userIdInput = document.getElementById('kioskUserId');
+    const pinHidden = document.getElementById('kioskPinHidden');
+    const accionInput = document.getElementById('kioskAccion');
+    const entradaBtn = document.getElementById('kioskEntradaBtn');
+    const salidaBtn = document.getElementById('kioskSalidaBtn');
+    const descansoGroup = document.getElementById('kioskDescansoGroup');
+    const descansoBtn = document.getElementById('kioskDescansoBtn');
+
+    let currentUserData = null;
+
+    function resetModal() {
+      pinInput.value = '';
+      pinHidden.value = '';
+      pinError.classList.add('d-none');
+      pinError.textContent = '';
+      pinStep.classList.remove('d-none');
+      actionStep.classList.add('d-none');
+      noLocationAlert.classList.add('d-none');
     }
+
+    function applyUserRules(data) {
+      const hasLocations = data.tieneUbicaciones === '1';
+      const bloquearEntrada = data.bloquearEntrada === '1';
+      const bloquearSalida = data.bloquearSalida === '1';
+      const tieneDescanso = data.tieneDescanso === '1';
+      const descansoFlexible = data.descansoFlexible === '1';
+      const descansoEnCurso = data.descansoEnCurso === '1';
+      const bloquearDescanso = data.bloquearDescanso === '1';
+
+      noLocationAlert.classList.toggle('d-none', hasLocations);
+
+      entradaBtn.disabled = !hasLocations || bloquearEntrada;
+      salidaBtn.disabled = !hasLocations || bloquearSalida;
+
+      if (tieneDescanso && descansoFlexible) {
+        descansoGroup.classList.remove('d-none');
+        descansoBtn.disabled = !hasLocations || bloquearDescanso;
+        if (descansoEnCurso) {
+          descansoBtn.textContent = 'Terminar descanso';
+          descansoBtn.dataset.action = 'descanso_fin';
+        } else {
+          descansoBtn.textContent = 'Iniciar descanso';
+          descansoBtn.dataset.action = 'descanso_inicio';
+        }
+      } else {
+        descansoGroup.classList.add('d-none');
+      }
+    }
+
+    document.querySelectorAll('.kiosk-user-card').forEach(card => {
+      card.addEventListener('click', () => {
+        currentUserData = {
+          userId: card.dataset.userId,
+          username: card.dataset.username,
+          tieneUbicaciones: card.dataset.tieneUbicaciones,
+          bloquearEntrada: card.dataset.bloquearEntrada,
+          bloquearSalida: card.dataset.bloquearSalida,
+          tieneDescanso: card.dataset.tieneDescanso,
+          descansoFlexible: card.dataset.descansoEsFlexible,
+          descansoEnCurso: card.dataset.descansoEnCurso,
+          bloquearDescanso: card.dataset.bloquearDescanso,
+        };
+        modalTitle.textContent = `Fichar · ${currentUserData.username}`;
+        userIdInput.value = currentUserData.userId;
+        resetModal();
+        modalKioskUser.show();
+        pinInput.focus();
+      });
+    });
+
+    pinSubmit.addEventListener('click', async () => {
+      if (!currentUserData) return;
+      const pin = pinInput.value.trim();
+      if (!/^\d{4}$/.test(pin)) {
+        pinError.textContent = 'Introduce un PIN válido de 4 dígitos.';
+        pinError.classList.remove('d-none');
+        return;
+      }
+
+      pinError.classList.add('d-none');
+      pinError.textContent = '';
+
+      const resp = await fetch('{{ url_for("kiosko_validar_pin") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usuario_id: currentUserData.userId, pin })
+      });
+
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.ok) {
+        pinError.textContent = data.message || 'PIN incorrecto.';
+        pinError.classList.remove('d-none');
+        return;
+      }
+
+      pinHidden.value = pin;
+      pinStep.classList.add('d-none');
+      actionStep.classList.remove('d-none');
+      applyUserRules(currentUserData);
+    });
+
+    function submitAccion(accion) {
+      accionInput.value = accion;
+      actionForm.requestSubmit();
+    }
+
+    entradaBtn.addEventListener('click', () => submitAccion('entrada'));
+    salidaBtn.addEventListener('click', () => submitAccion('salida'));
+    descansoBtn.addEventListener('click', () => {
+      submitAccion(descansoBtn.dataset.action || 'descanso_inicio');
+    });
 
     // Modal de justificación para salidas
     const modalTemplate = `
@@ -189,15 +311,13 @@ document.addEventListener("DOMContentLoaded", function () {
     const btnEnviarExtraK = document.getElementById('btnEnviarExtraK');
     let formPendiente = null;
 
-    document.querySelectorAll('form[action="{{ url_for("fichar") }}"]').forEach(form => {
-      form.addEventListener('submit', function (ev) {
-        const submitter = ev.submitter;
-        if (submitter && submitter.value === 'salida') {
-          ev.preventDefault();
-          formPendiente = form;
-          modalK.show();
-        }
-      });
+    const accionInputRef = document.getElementById('kioskAccion');
+    actionForm.addEventListener('submit', function (ev) {
+      if (accionInputRef && accionInputRef.value === 'salida') {
+        ev.preventDefault();
+        formPendiente = actionForm;
+        modalK.show();
+      }
     });
 
     btnEnviarExtraK.addEventListener('click', () => {
