@@ -109,17 +109,19 @@ def calcular_jornada_teorica(schedule: Schedule, dt: datetime.date) -> timedelta
 
         duracion = fin - inicio
 
-        # Descanso
-        if dia.break_type == "fixed":
-            if dia.break_start and dia.break_end:
-                b_inicio = datetime.combine(dt, dia.break_start)
-                b_fin = datetime.combine(dt, dia.break_end)
-                if b_fin <= b_inicio:
-                    b_fin += timedelta(days=1)
-                duracion -= (b_fin - b_inicio)
-        elif dia.break_type == "flexible":
-            if dia.break_minutes:
-                duracion -= timedelta(minutes=dia.break_minutes or 0)
+        break_paid = getattr(dia, "break_paid", False)
+        if not break_paid:
+            # Descanso
+            if dia.break_type == "fixed":
+                if dia.break_start and dia.break_end:
+                    b_inicio = datetime.combine(dt, dia.break_start)
+                    b_fin = datetime.combine(dt, dia.break_end)
+                    if b_fin <= b_inicio:
+                        b_fin += timedelta(days=1)
+                    duracion -= (b_fin - b_inicio)
+            elif dia.break_type == "flexible":
+                if dia.break_minutes:
+                    duracion -= timedelta(minutes=dia.break_minutes or 0)
 
         if duracion.total_seconds() < 0:
             duracion = timedelta(0)
@@ -138,16 +140,18 @@ def calcular_jornada_teorica(schedule: Schedule, dt: datetime.date) -> timedelta
 
     duracion = fin - inicio
 
-    if schedule.break_type == "fixed":
-        if schedule.break_start and schedule.break_end:
-            b_inicio = datetime.combine(dt, schedule.break_start)
-            b_fin = datetime.combine(dt, schedule.break_end)
-            if b_fin <= b_inicio:
-                b_fin += timedelta(days=1)
-            duracion -= (b_fin - b_inicio)
-    elif schedule.break_type == "flexible":
-        if schedule.break_minutes:
-            duracion -= timedelta(minutes=schedule.break_minutes or 0)
+    break_paid = getattr(schedule, "break_paid", False)
+    if not break_paid:
+        if schedule.break_type == "fixed":
+            if schedule.break_start and schedule.break_end:
+                b_inicio = datetime.combine(dt, schedule.break_start)
+                b_fin = datetime.combine(dt, schedule.break_end)
+                if b_fin <= b_inicio:
+                    b_fin += timedelta(days=1)
+                duracion -= (b_fin - b_inicio)
+        elif schedule.break_type == "flexible":
+            if schedule.break_minutes:
+                duracion -= timedelta(minutes=schedule.break_minutes or 0)
 
     if duracion.total_seconds() < 0:
         duracion = timedelta(0)
@@ -408,7 +412,12 @@ def calcular_extra_y_defecto_intervalo(it):
 
         longitud_bruta = fin_j - inicio_j
 
-        if dia.break_type == "fixed" and dia.break_start and dia.break_end:
+        break_optional = getattr(dia, "break_optional", False)
+        break_paid = getattr(dia, "break_paid", False)
+
+        if break_paid:
+            descanso_teorico_td = timedelta(0)
+        elif dia.break_type == "fixed" and dia.break_start and dia.break_end:
             b_inicio = datetime.combine(fecha, dia.break_start)
             b_fin = datetime.combine(fecha, dia.break_end)
             if b_fin <= b_inicio:
@@ -434,7 +443,12 @@ def calcular_extra_y_defecto_intervalo(it):
 
         longitud_bruta = fin_j - inicio_j
 
-        if schedule.break_type == "fixed" and schedule.break_start and schedule.break_end:
+        break_optional = getattr(schedule, "break_optional", False)
+        break_paid = getattr(schedule, "break_paid", False)
+
+        if break_paid:
+            descanso_teorico_td = timedelta(0)
+        elif schedule.break_type == "fixed" and schedule.break_start and schedule.break_end:
             b_inicio = datetime.combine(fecha, schedule.break_start)
             b_fin = datetime.combine(fecha, schedule.break_end)
             if b_fin <= b_inicio:
@@ -449,7 +463,12 @@ def calcular_extra_y_defecto_intervalo(it):
     if dur_teorica.total_seconds() < 0:
         dur_teorica = timedelta(0)
 
-    descanso_efectivo = max(descanso_real_td, descanso_teorico_td)
+    if break_paid:
+        descanso_efectivo = timedelta(0)
+    elif break_optional:
+        descanso_efectivo = descanso_real_td
+    else:
+        descanso_efectivo = max(descanso_real_td, descanso_teorico_td)
 
     trabajo_real = dur_real - descanso_efectivo
     if trabajo_real.total_seconds() < 0:

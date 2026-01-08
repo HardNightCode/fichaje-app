@@ -24,10 +24,19 @@
     font-size: 0.85rem;
     padding: 0.3rem 0.4rem;
   }
+  .per-day-table {
+    min-width: 980px;
+  }
+  .break-options-group {
+    border: 1px solid #e9ecef;
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: #f8f9fa;
+  }
 </style>
 
 <div class="row">
-  <div class="col-lg-8">
+  <div class="col-xl-9 col-lg-10 col-12">
     <div class="card mb-4">
       <div class="card-header">
         Editar horario
@@ -80,6 +89,32 @@
               <input type="number" min="0" name="break_minutes" class="form-control"
                      value="{{ horario.break_minutes if horario.break_minutes is not none }}">
             </div>
+
+            <div class="col-12">
+              <div class="break-options-group">
+                <div class="form-check">
+                  <input class="form-check-input global-break-optional"
+                         type="checkbox" name="break_optional" id="break_optional_global"
+                         {% if horario.break_optional %}checked{% endif %}
+                         {% if horario.break_type == 'none' %}disabled{% endif %}>
+                  <label class="form-check-label" for="break_optional_global">Pausa optativa</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input global-break-unpaid"
+                         type="checkbox" name="break_unpaid" id="break_unpaid_global"
+                         {% if horario.break_type != 'none' and not horario.break_paid %}checked{% endif %}
+                         {% if horario.break_type == 'none' %}disabled{% endif %}>
+                  <label class="form-check-label" for="break_unpaid_global">Pausa no retribuida</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input global-break-paid"
+                         type="checkbox" name="break_paid" id="break_paid_global"
+                         {% if horario.break_paid %}checked{% endif %}
+                         {% if horario.break_type == 'none' %}disabled{% endif %}>
+                  <label class="form-check-label" for="break_paid_global">Pausa retribuida</label>
+                </div>
+              </div>
+            </div>
           </div>
 
           <hr class="mt-4">
@@ -119,6 +154,9 @@
                     <th>Inicio descanso</th>
                     <th>Fin descanso</th>
                     <th>Min. descanso</th>
+                    <th>Optativa</th>
+                    <th>No retrib.</th>
+                    <th>Retrib.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -181,6 +219,30 @@
                                class="form-control form-control-sm"
                                value="{{ d.break_minutes if d and d.break_minutes is not none }}">
                       </td>
+                      <td class="text-center">
+                        <input type="checkbox"
+                               class="form-check-input day-break-optional"
+                               name="{{ prefix }}_break_optional"
+                               data-prefix="{{ prefix }}"
+                               {% if d and d.break_optional %}checked{% endif %}
+                               {% if bt == 'none' %}disabled{% endif %}>
+                      </td>
+                      <td class="text-center">
+                        <input type="checkbox"
+                               class="form-check-input day-break-unpaid"
+                               name="{{ prefix }}_break_unpaid"
+                               data-prefix="{{ prefix }}"
+                               {% if d and d.break_type != 'none' and not d.break_paid %}checked{% endif %}
+                               {% if bt == 'none' %}disabled{% endif %}>
+                      </td>
+                      <td class="text-center">
+                        <input type="checkbox"
+                               class="form-check-input day-break-paid"
+                               name="{{ prefix }}_break_paid"
+                               data-prefix="{{ prefix }}"
+                               {% if d and d.break_paid %}checked{% endif %}
+                               {% if bt == 'none' %}disabled{% endif %}>
+                      </td>
                     </tr>
                   {% endfor %}
                 </tbody>
@@ -217,6 +279,9 @@
     const tipo = document.getElementById('break_type_global').value;
     const fijoElems = document.querySelectorAll('.global-descanso-fijo');
     const flexElems = document.querySelectorAll('.global-descanso-flexible');
+    const opt = document.querySelector('.global-break-optional');
+    const unpaid = document.querySelector('.global-break-unpaid');
+    const paid = document.querySelector('.global-break-paid');
 
     if (tipo === 'fixed') {
       fijoElems.forEach(e => e.classList.remove('d-none'));
@@ -227,6 +292,19 @@
     } else {
       fijoElems.forEach(e => e.classList.add('d-none'));
       flexElems.forEach(e => e.classList.add('d-none'));
+    }
+
+    const enabled = tipo !== 'none';
+    [opt, unpaid, paid].forEach(el => {
+      if (!el) return;
+      el.disabled = !enabled;
+      if (!enabled) {
+        el.checked = false;
+      }
+    });
+
+    if (enabled && unpaid && paid && !unpaid.checked && !paid.checked) {
+      unpaid.checked = true;
     }
   }
 
@@ -246,8 +324,13 @@
         if (el === toggleBtn) return;
         if (el.name.endsWith('_start') || el.name.endsWith('_end') ||
             el.name.endsWith('_break_start') || el.name.endsWith('_break_end') ||
-            el.name.endsWith('_break_minutes')) {
-          el.value = "";
+            el.name.endsWith('_break_minutes') || el.name.endsWith('_break_optional') ||
+            el.name.endsWith('_break_unpaid') || el.name.endsWith('_break_paid')) {
+          if (el.type === "checkbox") {
+            el.checked = false;
+          } else {
+            el.value = "";
+          }
         }
         if (el.tagName === "SELECT" && el.name.endsWith('_break_type')) {
           el.value = "none";
@@ -288,6 +371,9 @@
     const bs = row.querySelector(`input[name="${prefix}_break_start"]`);
     const be = row.querySelector(`input[name="${prefix}_break_end"]`);
     const bm = row.querySelector(`input[name="${prefix}_break_minutes"]`);
+    const opt = row.querySelector(`input[name="${prefix}_break_optional"]`);
+    const unpaid = row.querySelector(`input[name="${prefix}_break_unpaid"]`);
+    const paid = row.querySelector(`input[name="${prefix}_break_paid"]`);
 
     if (!sel || !bs || !be || !bm) return;
 
@@ -303,17 +389,34 @@
       bs.disabled = true;
       be.disabled = true;
       bm.disabled = true;
+      [opt, unpaid, paid].forEach(el => {
+        if (!el) return;
+        el.checked = false;
+        el.disabled = true;
+      });
     } else if (sel.value === "fixed") {
       bm.value = "";
       bm.disabled = true;
       bs.disabled = false;
       be.disabled = false;
+      [opt, unpaid, paid].forEach(el => {
+        if (!el) return;
+        el.disabled = false;
+      });
     } else if (sel.value === "flexible") {
       bs.value = "";
       be.value = "";
       bs.disabled = true;
       be.disabled = true;
       bm.disabled = false;
+      [opt, unpaid, paid].forEach(el => {
+        if (!el) return;
+        el.disabled = false;
+      });
+    }
+
+    if (sel.value !== "none" && unpaid && paid && !unpaid.checked && !paid.checked) {
+      unpaid.checked = true;
     }
   }
 
@@ -375,6 +478,20 @@
       });
     });
 
+    ["break_optional", "break_unpaid", "break_paid"].forEach(field => {
+      const srcEl = getField(srcPrefix, field);
+      if (!srcEl) return;
+      const checked = srcEl.checked;
+
+      DAY_PREFIXES.slice(1).forEach(prefix => {
+        const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+        if (!row || row.dataset.active === "0") return;
+        const dstEl = getField(prefix, field);
+        if (!dstEl) return;
+        dstEl.checked = checked;
+      });
+    });
+
     DAY_PREFIXES.forEach(updateDayBreakFields);
   }
 
@@ -384,6 +501,17 @@
     if (selGlobal) {
       selGlobal.addEventListener('change', updateGlobalBreakFields);
       updateGlobalBreakFields();
+    }
+
+    const unpaidGlobal = document.getElementById('break_unpaid_global');
+    const paidGlobal = document.getElementById('break_paid_global');
+    if (unpaidGlobal && paidGlobal) {
+      unpaidGlobal.addEventListener('change', () => {
+        if (unpaidGlobal.checked) paidGlobal.checked = false;
+      });
+      paidGlobal.addEventListener('change', () => {
+        if (paidGlobal.checked) unpaidGlobal.checked = false;
+      });
     }
 
     // Checkbox de modo por días
@@ -419,6 +547,23 @@
       sel.addEventListener('change', function() {
         const prefix = this.dataset.prefix;
         updateDayBreakFields(prefix);
+      });
+    });
+
+    document.querySelectorAll('.day-break-unpaid').forEach(chk => {
+      chk.addEventListener('change', function() {
+        const prefix = this.dataset.prefix;
+        const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+        const paid = row.querySelector(`input[name="${prefix}_break_paid"]`);
+        if (this.checked && paid) paid.checked = false;
+      });
+    });
+    document.querySelectorAll('.day-break-paid').forEach(chk => {
+      chk.addEventListener('change', function() {
+        const prefix = this.dataset.prefix;
+        const row = document.querySelector(`tr.day-row[data-prefix="${prefix}"]`);
+        const unpaid = row.querySelector(`input[name="${prefix}_break_unpaid"]`);
+        if (this.checked && unpaid) unpaid.checked = false;
       });
     });
 

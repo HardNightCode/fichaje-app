@@ -31,6 +31,8 @@ def register_admin_schedule_routes(app):
             break_start = None
             break_end = None
             break_minutes = None
+            break_optional = False
+            break_paid = False
 
             if not use_per_day:
                 start_time_str = request.form.get("start_time", "").strip()
@@ -40,6 +42,12 @@ def register_admin_schedule_routes(app):
                 break_start_str = request.form.get("break_start", "").strip()
                 break_end_str = request.form.get("break_end", "").strip()
                 break_minutes_str = request.form.get("break_minutes", "").strip()
+                break_optional = bool(request.form.get("break_optional"))
+                break_paid = bool(request.form.get("break_paid"))
+                break_unpaid = bool(request.form.get("break_unpaid"))
+                break_optional = bool(request.form.get("break_optional"))
+                break_paid = bool(request.form.get("break_paid"))
+                break_unpaid = bool(request.form.get("break_unpaid"))
 
                 if not start_time_str or not end_time_str:
                     flash("Inicio y fin de jornada son obligatorios en modo simple.", "error")
@@ -72,6 +80,15 @@ def register_admin_schedule_routes(app):
                         flash("Los minutos de descanso deben ser numéricos.", "error")
                         return redirect(url_for("admin_horarios"))
 
+                if break_type == "none":
+                    break_optional = False
+                    break_paid = False
+                else:
+                    if break_paid and break_unpaid:
+                        break_paid = True
+                    elif not break_paid and not break_unpaid:
+                        break_paid = False
+
             if use_per_day:
                 start_time_val = time(0, 0)
                 end_time_val = time(23, 59)
@@ -79,6 +96,8 @@ def register_admin_schedule_routes(app):
                 break_start = None
                 break_end = None
                 break_minutes = None
+                break_optional = False
+                break_paid = False
 
             horario = Schedule(
                 name=name,
@@ -88,6 +107,8 @@ def register_admin_schedule_routes(app):
                 break_start=break_start,
                 break_end=break_end,
                 break_minutes=break_minutes,
+                break_optional=break_optional,
+                break_paid=break_paid,
                 use_per_day=use_per_day,
             )
             db.session.add(horario)
@@ -123,6 +144,9 @@ def register_admin_schedule_routes(app):
                     b_type = request.form.get(f"{prefix}_break_type", "none")
                     bs = be = None
                     bmin = None
+                    b_optional = bool(request.form.get(f"{prefix}_break_optional"))
+                    b_paid = bool(request.form.get(f"{prefix}_break_paid"))
+                    b_unpaid = bool(request.form.get(f"{prefix}_break_unpaid"))
 
                     if b_type == "fixed":
                         bs_str = request.form.get(f"{prefix}_break_start", "").strip()
@@ -151,6 +175,15 @@ def register_admin_schedule_routes(app):
                             db.session.rollback()
                             return redirect(url_for("admin_horarios"))
 
+                    if b_type == "none":
+                        b_optional = False
+                        b_paid = False
+                    else:
+                        if b_paid and b_unpaid:
+                            b_paid = True
+                        elif not b_paid and not b_unpaid:
+                            b_paid = False
+
                     dia_obj = ScheduleDay(
                         schedule_id=horario.id,
                         day_of_week=dow,
@@ -160,6 +193,8 @@ def register_admin_schedule_routes(app):
                         break_start=bs,
                         break_end=be,
                         break_minutes=bmin,
+                        break_optional=b_optional,
+                        break_paid=b_paid,
                     )
                     db.session.add(dia_obj)
                     tiene_algun_dia = True
@@ -250,6 +285,8 @@ def register_admin_schedule_routes(app):
                 horario.break_start = None
                 horario.break_end = None
                 horario.break_minutes = None
+                horario.break_optional = False
+                horario.break_paid = False
 
                 if break_type == "fixed":
                     if not break_start_str or not break_end_str:
@@ -271,6 +308,18 @@ def register_admin_schedule_routes(app):
                         flash("Los minutos de descanso deben ser numéricos.", "error")
                         return redirect(url_for("editar_horario", schedule_id=horario.id))
 
+                if break_type == "none":
+                    break_optional = False
+                    break_paid = False
+                else:
+                    if break_paid and break_unpaid:
+                        break_paid = True
+                    elif not break_paid and not break_unpaid:
+                        break_paid = False
+
+                horario.break_optional = break_optional
+                horario.break_paid = break_paid
+
                 horario.days.clear()
 
             else:
@@ -280,6 +329,8 @@ def register_admin_schedule_routes(app):
                 horario.break_start = None
                 horario.break_end = None
                 horario.break_minutes = None
+                horario.break_optional = False
+                horario.break_paid = False
 
                 horario.days.clear()
 
@@ -311,6 +362,9 @@ def register_admin_schedule_routes(app):
                     b_type = request.form.get(f"{prefix}_break_type", "none")
                     bs = be = None
                     bmin = None
+                    b_optional = bool(request.form.get(f"{prefix}_break_optional"))
+                    b_paid = bool(request.form.get(f"{prefix}_break_paid"))
+                    b_unpaid = bool(request.form.get(f"{prefix}_break_unpaid"))
 
                     if b_type == "fixed":
                         bs_str = request.form.get(f"{prefix}_break_start", "").strip()
@@ -335,6 +389,15 @@ def register_admin_schedule_routes(app):
                             flash("Los minutos de descanso diario deben ser numéricos.", "error")
                             return redirect(url_for("editar_horario", schedule_id=horario.id))
 
+                    if b_type == "none":
+                        b_optional = False
+                        b_paid = False
+                    else:
+                        if b_paid and b_unpaid:
+                            b_paid = True
+                        elif not b_paid and not b_unpaid:
+                            b_paid = False
+
                     dia_obj = ScheduleDay(
                         schedule_id=horario.id,
                         day_of_week=dow,
@@ -344,6 +407,8 @@ def register_admin_schedule_routes(app):
                         break_start=bs,
                         break_end=be,
                         break_minutes=bmin,
+                        break_optional=b_optional,
+                        break_paid=b_paid,
                     )
                     horario.days.append(dia_obj)
                     tiene_algun_dia = True

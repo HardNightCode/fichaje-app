@@ -137,10 +137,10 @@ def register_fichaje_routes(app):
                 if schedule.use_per_day:
                     dow = hoy.weekday()
                     dia = next((d for d in schedule.days if d.day_of_week == dow), None)
-                    if dia and dia.break_type == "fixed":
+                    if dia and dia.break_type == "fixed" and not getattr(dia, "break_optional", False):
                         descanso_fijo_hoy = True
                 else:
-                    if schedule.break_type == "fixed":
+                    if schedule.break_type == "fixed" and not getattr(schedule, "break_optional", False):
                         descanso_fijo_hoy = True
 
             if descanso_fijo_hoy:
