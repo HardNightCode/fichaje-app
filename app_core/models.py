@@ -164,6 +164,8 @@ class Schedule(db.Model):
     break_start = db.Column(db.Time, nullable=True)
     break_end = db.Column(db.Time, nullable=True)
     break_minutes = db.Column(db.Integer, nullable=True)
+    break_optional = db.Column(db.Boolean, nullable=False, default=False)
+    break_paid = db.Column(db.Boolean, nullable=False, default=False)
 
     # ¿Usa configuración por días?
     use_per_day = db.Column(db.Boolean, default=False, nullable=False)
@@ -193,6 +195,8 @@ class ScheduleDay(db.Model):
     break_start = db.Column(db.Time, nullable=True)
     break_end = db.Column(db.Time, nullable=True)
     break_minutes = db.Column(db.Integer, nullable=True)
+    break_optional = db.Column(db.Boolean, nullable=False, default=False)
+    break_paid = db.Column(db.Boolean, nullable=False, default=False)
 
 
 class UserSchedule(db.Model):

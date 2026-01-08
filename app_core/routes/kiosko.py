@@ -72,12 +72,12 @@ def register_kiosko_routes(app):
                     if dia:
                         if dia.break_type in ("fixed", "flexible"):
                             tiene_descanso = True
-                        if dia.break_type == "flexible":
+                        if dia.break_type == "flexible" or (dia.break_type == "fixed" and getattr(dia, "break_optional", False)):
                             descanso_es_flexible = True
                 else:
                     if schedule.break_type in ("fixed", "flexible"):
                         tiene_descanso = True
-                    if schedule.break_type == "flexible":
+                    if schedule.break_type == "flexible" or (schedule.break_type == "fixed" and getattr(schedule, "break_optional", False)):
                         descanso_es_flexible = True
 
             ultimo_entrada = (
