@@ -63,8 +63,9 @@ def crear_tablas():
 def _asegurar_columnas_descanso():
     engine = db.engine
     inspector = inspect(engine)
+    dialect = engine.dialect.name
 
-    def _add_col(table, col_name, ddl):
+    def _add_col(table, col_name, col_type_sql):
         try:
             cols = [c["name"] for c in inspector.get_columns(table)]
         except Exception:
@@ -72,12 +73,18 @@ def _asegurar_columnas_descanso():
         if col_name in cols:
             return
         try:
+            if dialect == "postgresql":
+                stmt = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col_name} {col_type_sql}"
+            else:
+                stmt = f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type_sql}"
             with engine.begin() as conn:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+                conn.execute(text(stmt))
         except Exception:
+            # Evitamos romper el arranque si la BD no permite DDL.
             pass
 
-    _add_col("schedule", "break_optional", "break_optional BOOLEAN NOT NULL DEFAULT 0")
-    _add_col("schedule", "break_paid", "break_paid BOOLEAN NOT NULL DEFAULT 0")
-    _add_col("schedule_day", "break_optional", "break_optional BOOLEAN NOT NULL DEFAULT 0")
-    _add_col("schedule_day", "break_paid", "break_paid BOOLEAN NOT NULL DEFAULT 0")
+    col_type = "BOOLEAN NOT NULL DEFAULT FALSE"
+    _add_col("schedule", "break_optional", col_type)
+    _add_col("schedule", "break_paid", col_type)
+    _add_col("schedule_day", "break_optional", col_type)
+    _add_col("schedule_day", "break_paid", col_type)
