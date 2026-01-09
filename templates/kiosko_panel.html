@@ -37,6 +37,7 @@
                             data-descanso-es-flexible="{{ 1 if card.descanso_es_flexible else 0 }}"
                             data-descanso-en-curso="{{ 1 if card.descanso_en_curso else 0 }}"
                             data-bloquear-descanso="{{ 1 if card.bloquear_descanso else 0 }}"
+                            data-fin-margen="{{ card.fin_margen_iso }}"
                             data-last-selected="{% if last_user_id == u.id %}1{% else %}0{% endif %}">
                         <div class="card-body d-flex flex-column justify-content-center">
                             <h4 class="card-title text-center mb-1">{{ u.username }}</h4>
@@ -52,7 +53,7 @@
 </div>
 
 <div class="modal fade" id="kioskUserModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="kioskModalTitle">Fichar</h5>
@@ -213,6 +214,7 @@ document.addEventListener("DOMContentLoaded", function () {
           descansoFlexible: card.dataset.descansoEsFlexible,
           descansoEnCurso: card.dataset.descansoEnCurso,
           bloquearDescanso: card.dataset.bloquearDescanso,
+          finMargenIso: card.dataset.finMargen,
         };
         modalTitle.textContent = `Fichar · ${currentUserData.username}`;
         userIdInput.value = currentUserData.userId;
@@ -267,7 +269,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // Modal de justificación para salidas
     const modalTemplate = `
     <div class="modal fade" id="modalExtraK" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">Justificar horas extra</h5>
@@ -313,7 +315,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const accionInputRef = document.getElementById('kioskAccion');
     actionForm.addEventListener('submit', function (ev) {
-      if (accionInputRef && accionInputRef.value === 'salida') {
+      if (!accionInputRef || accionInputRef.value !== 'salida') {
+        return;
+      }
+      const finMargenIso = (currentUserData && currentUserData.finMargenIso) || '';
+      if (!finMargenIso) {
+        return;
+      }
+      const finDt = new Date(finMargenIso);
+      const ahora = new Date();
+      if (ahora > finDt) {
         ev.preventDefault();
         formPendiente = actionForm;
         modalK.show();
