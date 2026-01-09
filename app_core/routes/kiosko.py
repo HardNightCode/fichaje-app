@@ -7,6 +7,7 @@ from werkzeug.security import check_password_hash
 
 from ..logic import obtener_horario_aplicable, obtener_ubicaciones_usuario, usuario_tiene_flexible
 from ..models import Kiosk, KioskUser, Registro, User
+from .fichajes import calcular_fin_con_margen
 
 
 def register_kiosko_routes(app):
@@ -131,6 +132,9 @@ def register_kiosko_routes(app):
 
             bloquear_descanso = not entrada_abierta or not descanso_es_flexible
 
+            fin_margen_local = calcular_fin_con_margen(u, hoy)
+            fin_margen_iso = fin_margen_local.isoformat() if fin_margen_local else ""
+
             kiosk_cards.append({
                 "user": u,
                 "tiene_ubicaciones": tiene_ubicaciones,
@@ -141,6 +145,7 @@ def register_kiosko_routes(app):
                 "descanso_es_flexible": descanso_es_flexible,
                 "descanso_en_curso": descanso_en_curso,
                 "bloquear_descanso": bloquear_descanso,
+                "fin_margen_iso": fin_margen_iso,
             })
 
         return render_template(
