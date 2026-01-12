@@ -60,16 +60,22 @@
             </button>
 
             <!-- Eliminar usuario -->
-            <form method="post"
-                  action="{{ url_for('admin_usuarios_fichas') }}"
-                  onsubmit="return confirm('¿Seguro que quieres eliminar al usuario {{ u.username }}? Esta acción es irreversible.');"
-                  class="d-inline">
-              <input type="hidden" name="user_id" value="{{ u.id }}">
-              <input type="hidden" name="action" value="delete">
-              <button type="submit" class="btn btn-outline-danger">
+            {% if u.username == 'admin' %}
+              <button type="button" class="btn btn-outline-danger" disabled title="No se puede eliminar la cuenta admin">
                 Eliminar
               </button>
-            </form>
+            {% else %}
+              <form method="post"
+                    action="{{ url_for('admin_usuarios_fichas') }}"
+                    onsubmit="return confirm('¿Seguro que quieres eliminar al usuario {{ u.username }}? Esta acción es irreversible.');"
+                    class="d-inline">
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" class="btn btn-outline-danger">
+                  Eliminar
+                </button>
+              </form>
+            {% endif %}
           </div>
         </td>
       </tr>
