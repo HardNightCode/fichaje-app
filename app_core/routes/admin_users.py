@@ -85,6 +85,10 @@ def register_admin_user_routes(app):
                 flash("No puedes eliminar tu propio usuario.", "error")
                 return redirect(url_for("admin_usuarios_fichas"))
 
+            if action == "delete" and user.username == "admin":
+                flash("No puedes eliminar la cuenta 'admin'.", "error")
+                return redirect(url_for("admin_usuarios_fichas"))
+
             if action == "update_role":
                 nuevo_rol = request.form.get("role", "").strip()
                 if nuevo_rol not in ("admin", "empleado", "kiosko", "kiosko_admin"):
@@ -113,6 +117,9 @@ def register_admin_user_routes(app):
                         "error",
                     )
                     return redirect(url_for("admin_usuarios_fichas"))
+
+                if user.schedule_settings:
+                    db.session.delete(user.schedule_settings)
 
                 db.session.delete(user)
                 db.session.commit()
