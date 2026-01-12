@@ -1,5 +1,6 @@
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user
+from sqlalchemy import text
 
 from ..auth import admin_required
 from ..extensions import db
@@ -7,7 +8,17 @@ from ..logic import (
     get_or_create_schedule_settings,
     obtener_ubicaciones_usuario,
 )
-from ..models import Location, Schedule, User, QRToken
+from ..models import (
+    KioskUser,
+    Location,
+    QRToken,
+    Registro,
+    RegistroEdicion,
+    RegistroJustificacion,
+    Schedule,
+    User,
+    UserSchedule,
+)
 from ..routes.auth_routes import crear_qr_token_db
 from datetime import datetime
 
@@ -120,6 +131,34 @@ def register_admin_user_routes(app):
 
                 if user.schedule_settings:
                     db.session.delete(user.schedule_settings)
+
+                db.session.query(UserSchedule).filter(UserSchedule.user_id == user.id).delete(
+                    synchronize_session=False
+                )
+                db.session.execute(
+                    text("DELETE FROM user_location WHERE user_id = :user_id"),
+                    {"user_id": user.id},
+                )
+                db.session.query(KioskUser).filter(KioskUser.user_id == user.id).delete(
+                    synchronize_session=False
+                )
+                db.session.query(QRToken).filter(QRToken.user_id == user.id).delete(
+                    synchronize_session=False
+                )
+
+                registros_subq = db.session.query(Registro.id).filter(
+                    Registro.usuario_id == user.id
+                ).subquery()
+                db.session.query(RegistroEdicion).filter(
+                    (RegistroEdicion.registro_id.in_(registros_subq))
+                    | (RegistroEdicion.editor_id == user.id)
+                ).delete(synchronize_session=False)
+                db.session.query(RegistroJustificacion).filter(
+                    RegistroJustificacion.registro_id.in_(registros_subq)
+                ).delete(synchronize_session=False)
+                db.session.query(Registro).filter(Registro.usuario_id == user.id).delete(
+                    synchronize_session=False
+                )
 
                 db.session.delete(user)
                 db.session.commit()
