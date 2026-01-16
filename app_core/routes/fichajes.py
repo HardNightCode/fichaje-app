@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
-from flask import flash, redirect, request, session, url_for
+from flask import flash, redirect, request, session, url_for, jsonify
 from flask_login import current_user, login_required
 from werkzeug.security import check_password_hash
+from sqlalchemy import text
 
 from ..extensions import db
 from ..logic import (
@@ -57,7 +58,103 @@ def calcular_fin_con_margen(usuario, fecha_local):
 from geo_utils import is_within_radius
 
 
+def _rango_utc_dia(fecha_local):
+    inicio_local = datetime.combine(fecha_local, time.min)
+    fin_local = datetime.combine(fecha_local, time.max)
+    return local_to_utc_naive(inicio_local), local_to_utc_naive(fin_local)
+
+
+def _calcular_trabajado_vs_esperado(usuario, fecha_local, registros):
+    intervalos = agrupar_registros_en_intervalos(registros)
+    trabajado = timedelta(0)
+
+    for it in intervalos:
+        if not it.usuario or it.usuario.id != usuario.id:
+            continue
+        fecha_base = it.entrada_momento.date() if it.entrada_momento else (
+            it.salida_momento.date() if it.salida_momento else None
+        )
+        if fecha_base != fecha_local:
+            continue
+        calcular_extra_y_defecto_intervalo(it)
+        trabajo_real = getattr(it, "trabajo_real", timedelta(0)) or timedelta(0)
+        if trabajo_real.total_seconds() > 0:
+            trabajado += trabajo_real
+
+    schedule = obtener_horario_aplicable(usuario, fecha_local)
+    esperado = calcular_jornada_teorica(schedule, fecha_local) if schedule else timedelta(0)
+    return trabajado, esperado
+
+
 def register_fichaje_routes(app):
+    @app.route("/fichar/requiere_justificacion", methods=["POST"])
+    @login_required
+    def fichar_requiere_justificacion():
+        data = request.get_json(silent=True) or request.form
+        accion = (data.get("accion") or "").strip()
+        usuario_objetivo = current_user
+
+        if accion != "salida":
+            return jsonify({"require": False})
+
+        if current_user.role == "kiosko":
+            usuario_id_str = (data.get("usuario_id") or "").strip()
+            try:
+                usuario_id = int(usuario_id_str)
+            except (ValueError, TypeError):
+                return jsonify({"require": False})
+
+            usuario_objetivo = User.query.get(usuario_id)
+            if not usuario_objetivo:
+                return jsonify({"require": False})
+
+            kiosk = (
+                Kiosk.query
+                .filter_by(kiosk_account_id=current_user.id)
+                .first()
+            )
+            if not kiosk:
+                return jsonify({"require": False})
+
+            autorizado = (
+                KioskUser.query
+                .filter_by(kiosk_id=kiosk.id, user_id=usuario_objetivo.id)
+                .first()
+            )
+            if not autorizado:
+                return jsonify({"require": False})
+
+        if not usuario_tiene_intervalo_abierto(usuario_objetivo.id):
+            return jsonify({"require": False})
+
+        ahora_utc = datetime.utcnow()
+        fecha_local = to_local(ahora_utc).date()
+        inicio_utc, fin_utc = _rango_utc_dia(fecha_local)
+
+        registros = (
+            Registro.query
+            .filter(
+                Registro.usuario_id == usuario_objetivo.id,
+                Registro.momento >= inicio_utc,
+                Registro.momento <= fin_utc,
+            )
+            .all()
+        )
+        salida_tmp = Registro(
+            usuario_id=usuario_objetivo.id,
+            accion="salida",
+            momento=ahora_utc,
+        )
+        salida_tmp.usuario = usuario_objetivo
+        registros.append(salida_tmp)
+
+        trabajado, esperado = _calcular_trabajado_vs_esperado(
+            usuario_objetivo, fecha_local, registros
+        )
+
+        require = trabajado > esperado
+        return jsonify({"require": require})
+
     @app.route("/fichar", methods=["POST"])
     @login_required
     def fichar():
@@ -338,23 +435,32 @@ def register_fichaje_routes(app):
         db.session.add(registro)
         db.session.flush()
 
-        # Si es una SALIDA, comprobamos horas extra y pedimos justificación solo si se pasa de la hora fin + margen
+        # Si es una SALIDA, comprobamos horas extra y pedimos justificación solo si se supera lo esperado diario
         if accion == "salida":
             motivo_extra = (request.form.get("motivo_extra") or "").strip()
             detalle_extra = (request.form.get("detalle_extra") or "").strip()
 
             fecha_local = to_local(registro.momento).date()
-            fin_con_margen_local = calcular_fin_con_margen(usuario_objetivo, fecha_local)
-            fin_con_margen_utc = local_to_utc_naive(fin_con_margen_local) if fin_con_margen_local else None
+            inicio_utc, fin_utc = _rango_utc_dia(fecha_local)
+            registros_dia = (
+                Registro.query
+                .filter(
+                    Registro.usuario_id == usuario_objetivo.id,
+                    Registro.momento >= inicio_utc,
+                    Registro.momento <= fin_utc,
+                )
+                .all()
+            )
+            trabajado, esperado = _calcular_trabajado_vs_esperado(
+                usuario_objetivo, fecha_local, registros_dia
+            )
 
-            require_motivo = False
-            if fin_con_margen_utc and registro.momento > fin_con_margen_utc:
-                require_motivo = True
+            require_motivo = trabajado > esperado
 
             if require_motivo:
                 if not motivo_extra:
                     db.session.rollback()
-                    flash("Has superado tu hora prevista. Indica un motivo para registrar la salida.", "error")
+                    flash("Has superado tu tiempo esperado. Indica un motivo para registrar la salida.", "error")
                     return redirect(url_for(redirect_home))
                 just = RegistroJustificacion(
                     registro_id=registro.id,

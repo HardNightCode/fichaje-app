@@ -465,8 +465,6 @@ def calcular_extra_y_defecto_intervalo(it):
 
     if break_paid:
         descanso_efectivo = timedelta(0)
-    elif break_optional:
-        descanso_efectivo = descanso_real_td
     else:
         descanso_efectivo = max(descanso_real_td, descanso_teorico_td)
 
