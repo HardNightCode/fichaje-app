@@ -261,6 +261,7 @@
               <td class="text-end align-top">
                 {% set tiene_ediciones_entrada = it.entrada and it.entrada.ediciones and it.entrada.ediciones.count() %}
                 {% set tiene_ediciones_salida = it.salida and it.salida.ediciones and it.salida.ediciones.count() %}
+                {% set tiene_justificacion = it.justificacion is not none %}
 
                 {% if tiene_ediciones_entrada or tiene_ediciones_salida %}
                   <span class="small text-warning fw-semibold edit-toggle"
@@ -270,6 +271,14 @@
                   </span>
                 {% else %}
                   <span class="small text-muted d-block">Sin editar</span>
+                {% endif %}
+
+                {% if tiene_justificacion %}
+                  <span class="small text-success fw-semibold d-block mt-1 justif-toggle"
+                        data-interval-id="{{ it.row_id }}"
+                        title="Ver justificación">
+                    Justificacion <span class="justif-toggle-sign" data-interval-id="{{ it.row_id }}">+</span>
+                  </span>
                 {% endif %}
 
                 <div class="mt-2">
@@ -325,6 +334,23 @@
                 {% endif %}
               </td>
             </tr>
+
+            {% if tiene_justificacion %}
+            <tr id="justif-details-{{ it.row_id }}" class="justif-details-row" style="display: none;">
+              <td colspan="9" class="bg-light small">
+                <strong>Justificación de horas extra:</strong>
+                <ul class="mb-0 mt-1">
+                  <li>
+                    <strong>{{ it.justificacion.creado_en }}</strong> –
+                    motivo <code>{{ it.justificacion.motivo }}</code>
+                    {% if it.justificacion.detalle %}
+                      , detalle <code>{{ it.justificacion.detalle }}</code>
+                    {% endif %}
+                  </li>
+                </ul>
+              </td>
+            </tr>
+            {% endif %}
           {% endfor %}
           </tbody>
         </table>
@@ -380,6 +406,27 @@
         const detailsRow = document.getElementById('edit-details-' + intervalId);
         const signSpan = document.querySelector(
           '.edit-toggle-sign[data-interval-id="' + intervalId + '"]'
+        );
+
+        if (!detailsRow || !signSpan) return;
+
+        if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
+          detailsRow.style.display = 'table-row';
+          signSpan.textContent = '-';
+        } else {
+          detailsRow.style.display = 'none';
+          signSpan.textContent = '+';
+        }
+      });
+    });
+
+    // Toggle de justificaciones por intervalo
+    document.querySelectorAll('.justif-toggle').forEach(function(el) {
+      el.addEventListener('click', function() {
+        const intervalId = this.getAttribute('data-interval-id');
+        const detailsRow = document.getElementById('justif-details-' + intervalId);
+        const signSpan = document.querySelector(
+          '.justif-toggle-sign[data-interval-id="' + intervalId + '"]'
         );
 
         if (!detailsRow || !signSpan) return;

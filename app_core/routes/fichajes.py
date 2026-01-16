@@ -3,7 +3,6 @@ from datetime import datetime, time, timedelta
 from flask import flash, redirect, request, session, url_for, jsonify
 from flask_login import current_user, login_required
 from werkzeug.security import check_password_hash
-from sqlalchemy import text
 
 from ..extensions import db
 from ..logic import (

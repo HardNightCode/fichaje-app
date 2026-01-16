@@ -28,6 +28,7 @@ from ..models import (
     Location,
     Registro,
     RegistroEdicion,
+    RegistroJustificacion,
     User,
 )
 from ..reporting import generar_csv, generar_pdf
@@ -253,12 +254,24 @@ def register_admin_registro_routes(app):
 
             intervalos = agrupar_registros_en_intervalos(registros)
 
-            for it in intervalos:
-                extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
-                it.horas_extra = extra_td
-                it.horas_defecto = defecto_td
+        for it in intervalos:
+            extra_td, defecto_td = calcular_extra_y_defecto_intervalo(it)
+            it.horas_extra = extra_td
+            it.horas_defecto = defecto_td
 
-            calcular_descanso_intervalos(intervalos, registros)
+        calcular_descanso_intervalos(intervalos, registros)
+
+        salida_ids = [it.salida.id for it in intervalos if it.salida]
+        justificaciones = {}
+        if salida_ids:
+            justificaciones = {
+                j.registro_id: j
+                for j in RegistroJustificacion.query.filter(
+                    RegistroJustificacion.registro_id.in_(salida_ids)
+                ).all()
+            }
+        for it in intervalos:
+            it.justificacion = justificaciones.get(it.salida.id) if it.salida else None
             
             if request.method == "POST" and accion == "csv":
                 return generar_csv(intervalos, modo_conteo)
