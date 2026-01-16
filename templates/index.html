@@ -326,7 +326,6 @@
 </div>
 
 <script>
-  const finMargenIso = "{{ fin_margen_iso or '' }}";
   const modalExtra = new bootstrap.Modal(document.getElementById('modalExtra'));
   const btnEnviarExtra = document.getElementById('btnEnviarExtra');
   const selectMotivo = document.getElementById('selectMotivo');
@@ -393,17 +392,14 @@
     }
   });
 
-  function fichar(accion) {
+  async function fichar(accion) {
     document.getElementById('accion').value = accion;
     if (accion === 'salida') {
-      if (finMargenIso) {
-        const finDt = new Date(finMargenIso);
-        const ahora = new Date();
-        if (ahora > finDt) {
-          accionPendiente = accion;
-          modalExtra.show();
-          return;
-        }
+      const requiere = await requiereJustificacion();
+      if (requiere) {
+        accionPendiente = accion;
+        modalExtra.show();
+        return;
       }
     }
     enviarFichaje(accion);
@@ -425,6 +421,20 @@
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  }
+
+  async function requiereJustificacion() {
+    try {
+      const resp = await fetch('{{ url_for("fichar_requiere_justificacion") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'salida' })
+      });
+      const data = await resp.json();
+      return !!data.require;
+    } catch (e) {
+      return false;
+    }
   }
 </script>
 {% endblock %}

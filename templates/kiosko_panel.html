@@ -37,7 +37,6 @@
                             data-descanso-es-flexible="{{ 1 if card.descanso_es_flexible else 0 }}"
                             data-descanso-en-curso="{{ 1 if card.descanso_en_curso else 0 }}"
                             data-bloquear-descanso="{{ 1 if card.bloquear_descanso else 0 }}"
-                            data-fin-margen="{{ card.fin_margen_iso }}"
                             data-last-selected="{% if last_user_id == u.id %}1{% else %}0{% endif %}">
                         <div class="card-body d-flex flex-column justify-content-center">
                             <h4 class="card-title text-center mb-1">{{ u.username }}</h4>
@@ -214,7 +213,6 @@ document.addEventListener("DOMContentLoaded", function () {
           descansoFlexible: card.dataset.descansoEsFlexible,
           descansoEnCurso: card.dataset.descansoEnCurso,
           bloquearDescanso: card.dataset.bloquearDescanso,
-          finMargenIso: card.dataset.finMargen,
         };
         modalTitle.textContent = `Fichar · ${currentUserData.username}`;
         userIdInput.value = currentUserData.userId;
@@ -314,20 +312,23 @@ document.addEventListener("DOMContentLoaded", function () {
     let formPendiente = null;
 
     const accionInputRef = document.getElementById('kioskAccion');
-    actionForm.addEventListener('submit', function (ev) {
+    let permitirSubmitDirecto = false;
+    actionForm.addEventListener('submit', async function (ev) {
+      if (permitirSubmitDirecto) {
+        permitirSubmitDirecto = false;
+        return;
+      }
       if (!accionInputRef || accionInputRef.value !== 'salida') {
         return;
       }
-      const finMargenIso = (currentUserData && currentUserData.finMargenIso) || '';
-      if (!finMargenIso) {
-        return;
-      }
-      const finDt = new Date(finMargenIso);
-      const ahora = new Date();
-      if (ahora > finDt) {
-        ev.preventDefault();
+      ev.preventDefault();
+      const requiere = await requiereJustificacionKiosk();
+      if (requiere) {
         formPendiente = actionForm;
         modalK.show();
+      } else {
+        permitirSubmitDirecto = true;
+        actionForm.submit();
       }
     });
 
@@ -340,10 +341,26 @@ document.addEventListener("DOMContentLoaded", function () {
         formPendiente.querySelector('input[name="motivo_extra"]').value = selectMotivoK.value;
         formPendiente.querySelector('input[name="detalle_extra"]').value = inputDetalleK.value;
         modalK.hide();
+        permitirSubmitDirecto = true;
         formPendiente.submit();
         formPendiente = null;
       }
     });
+
+    async function requiereJustificacionKiosk() {
+      if (!currentUserData) return false;
+      try {
+        const resp = await fetch('{{ url_for("fichar_requiere_justificacion") }}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accion: 'salida', usuario_id: currentUserData.userId })
+        });
+        const data = await resp.json();
+        return !!data.require;
+      } catch (e) {
+        return false;
+      }
+    }
 });
 </script>
 

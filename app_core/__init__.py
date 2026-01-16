@@ -37,6 +37,12 @@ def create_app():
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+    db_uri = app.config["SQLALCHEMY_DATABASE_URI"] or ""
+    if db_uri.startswith("postgres"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+            "connect_args": {"options": "-c client_encoding=UTF8"},
+        }
+
     db.init_app(app)
 
     login_manager.login_view = "login"
