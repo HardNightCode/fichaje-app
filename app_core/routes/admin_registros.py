@@ -402,10 +402,22 @@ def register_admin_registro_routes(app):
                 if entrada_id_str:
                     entrada = Registro.query.get(int(entrada_id_str))
                     if entrada:
+                        RegistroJustificacion.query.filter_by(
+                            registro_id=entrada.id
+                        ).delete(synchronize_session=False)
+                        RegistroEdicion.query.filter_by(
+                            registro_id=entrada.id
+                        ).delete(synchronize_session=False)
                         db.session.delete(entrada)
                 if salida_id_str:
                     salida = Registro.query.get(int(salida_id_str))
                     if salida:
+                        RegistroJustificacion.query.filter_by(
+                            registro_id=salida.id
+                        ).delete(synchronize_session=False)
+                        RegistroEdicion.query.filter_by(
+                            registro_id=salida.id
+                        ).delete(synchronize_session=False)
                         db.session.delete(salida)
 
                 db.session.commit()
