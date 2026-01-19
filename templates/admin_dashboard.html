@@ -45,6 +45,17 @@
     <div class="col-12 col-md-6 col-xl-3">
       <div class="card shadow-sm h-100">
         <div class="card-body">
+          <div class="text-muted small">Horas extra</div>
+          <div class="display-6 fw-bold">{{ extra_hoy }}</div>
+          <div class="small text-muted mt-2">
+            Semana {{ extra_semana }} · Defecto hoy {{ defecto_hoy }} · Semana {{ defecto_semana }}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
           <div class="text-muted small">Acciones rápidas</div>
           <div class="d-grid gap-2 mt-3">
             <a class="btn btn-outline-primary" href="{{ url_for('admin_registros') }}">Ver registros</a>

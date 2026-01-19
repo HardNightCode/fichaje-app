@@ -48,6 +48,62 @@ def _fin_con_margen(usuario, fecha_local):
     return fin_dt + timedelta(minutes=margin)
 
 
+def _calcular_extra_defecto_periodo(fecha_inicio, fecha_fin):
+    """
+    Devuelve total extra y defecto (timedelta) para todos los usuarios entre fechas (inclusive).
+    """
+    inicio_local = datetime.combine(fecha_inicio, time.min)
+    fin_local = datetime.combine(fecha_fin, time.max)
+    inicio_utc = local_to_utc_naive(inicio_local)
+    fin_utc = local_to_utc_naive(fin_local)
+
+    registros = (
+        Registro.query
+        .filter(Registro.momento >= inicio_utc, Registro.momento <= fin_utc)
+        .all()
+    )
+    intervalos = agrupar_registros_en_intervalos(registros)
+
+    trabajos_por_usuario_fecha = {}
+    for it in intervalos:
+        if not it.usuario:
+            continue
+        fecha_base = it.entrada_momento.date() if it.entrada_momento else (
+            it.salida_momento.date() if it.salida_momento else None
+        )
+        if not fecha_base or not (fecha_inicio <= fecha_base <= fecha_fin):
+            continue
+
+        calcular_extra_y_defecto_intervalo(it)
+        trabajo_real = getattr(it, "trabajo_real", timedelta(0)) or timedelta(0)
+        if trabajo_real.total_seconds() <= 0:
+            continue
+
+        trabajos_por_usuario_fecha.setdefault(it.usuario.id, {})
+        trabajos_por_usuario_fecha[it.usuario.id][fecha_base] = (
+            trabajos_por_usuario_fecha[it.usuario.id].get(fecha_base, timedelta(0)) + trabajo_real
+        )
+
+    total_extra = timedelta(0)
+    total_defecto = timedelta(0)
+    for user_id, trabajos_fecha in trabajos_por_usuario_fecha.items():
+        usuario = User.query.get(user_id)
+        if not usuario:
+            continue
+        for fecha_base, trabajado in trabajos_fecha.items():
+            esperado = calcular_jornada_teorica(
+                obtener_horario_aplicable(usuario, fecha_base),
+                fecha_base,
+            )
+            diff = trabajado - esperado
+            if diff.total_seconds() > 0:
+                total_extra += diff
+            elif diff.total_seconds() < 0:
+                total_defecto += -diff
+
+    return total_extra, total_defecto
+
+
 def register_dashboard_routes(app):
     @app.route("/")
     @login_required
@@ -93,6 +149,11 @@ def register_dashboard_routes(app):
                 .count()
             )
 
+            lunes = date.fromisocalendar(hoy.isocalendar().year, hoy.isocalendar().week, 1)
+            domingo = lunes + timedelta(days=6)
+            extra_hoy, defecto_hoy = _calcular_extra_defecto_periodo(hoy, hoy)
+            extra_semana, defecto_semana = _calcular_extra_defecto_periodo(lunes, domingo)
+
             return render_template(
                 "admin_dashboard.html",
                 total_usuarios=total_usuarios,
@@ -103,6 +164,10 @@ def register_dashboard_routes(app):
                 entradas_hoy=entradas_hoy,
                 salidas_hoy=salidas_hoy,
                 justificaciones_hoy=justificaciones_hoy,
+                extra_hoy=formatear_timedelta(extra_hoy),
+                defecto_hoy=formatear_timedelta(defecto_hoy),
+                extra_semana=formatear_timedelta(extra_semana),
+                defecto_semana=formatear_timedelta(defecto_semana),
             )
 
         registros_usuario = (
