@@ -215,6 +215,8 @@ def register_dashboard_routes(app):
                     else:
                         it.descanso_label = "Sin descanso"
 
+                    calcular_extra_y_defecto_intervalo(it)
+
                 week_map = OrderedDict()
                 for it in intervalos_usuario:
                     ref = it.entrada_momento or it.salida_momento
