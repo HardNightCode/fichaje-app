@@ -4,6 +4,7 @@ from collections import OrderedDict
 from flask import render_template, redirect, url_for, request
 from flask_login import current_user, login_required
 
+from ..config import local_to_utc_naive
 from ..logic import (
     agrupar_registros_en_intervalos,
     calcular_descanso_intervalo_para_usuario,
@@ -13,7 +14,7 @@ from ..logic import (
     obtener_ubicaciones_usuario,
     usuario_tiene_flexible,
 )
-from ..models import Registro
+from ..models import Registro, RegistroJustificacion, User
 
 
 def _fin_con_margen(usuario, fecha_local):
@@ -54,6 +55,55 @@ def register_dashboard_routes(app):
         # Si es cuenta de kiosko, no mostramos el dashboard normal
         if current_user.role == "kiosko":
             return redirect(url_for("kiosko_panel"))
+
+        if current_user.role == "admin":
+            hoy = datetime.now().date()
+            inicio_local = datetime.combine(hoy, time.min)
+            fin_local = datetime.combine(hoy, time.max)
+            inicio_utc = local_to_utc_naive(inicio_local)
+            fin_utc = local_to_utc_naive(fin_local)
+
+            total_usuarios = User.query.count()
+            total_empleados = User.query.filter_by(role="empleado").count()
+            total_kioskos = User.query.filter_by(role="kiosko").count()
+            total_admins = User.query.filter(User.role.in_(["admin", "kiosko_admin"])).count()
+
+            registros_hoy = Registro.query.filter(
+                Registro.momento >= inicio_utc,
+                Registro.momento <= fin_utc,
+            ).count()
+            entradas_hoy = Registro.query.filter(
+                Registro.accion == "entrada",
+                Registro.momento >= inicio_utc,
+                Registro.momento <= fin_utc,
+            ).count()
+            salidas_hoy = Registro.query.filter(
+                Registro.accion == "salida",
+                Registro.momento >= inicio_utc,
+                Registro.momento <= fin_utc,
+            ).count()
+
+            justificaciones_hoy = (
+                RegistroJustificacion.query
+                .join(Registro, Registro.id == RegistroJustificacion.registro_id)
+                .filter(
+                    Registro.momento >= inicio_utc,
+                    Registro.momento <= fin_utc,
+                )
+                .count()
+            )
+
+            return render_template(
+                "admin_dashboard.html",
+                total_usuarios=total_usuarios,
+                total_empleados=total_empleados,
+                total_kioskos=total_kioskos,
+                total_admins=total_admins,
+                registros_hoy=registros_hoy,
+                entradas_hoy=entradas_hoy,
+                salidas_hoy=salidas_hoy,
+                justificaciones_hoy=justificaciones_hoy,
+            )
 
         registros_usuario = (
             Registro.query.filter_by(usuario_id=current_user.id)

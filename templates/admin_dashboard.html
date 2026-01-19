@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Panel de administración{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h3 mb-1">Panel de administración</h1>
+      <p class="text-muted mb-0">Resumen diario y accesos rápidos.</p>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small">Usuarios totales</div>
+          <div class="display-6 fw-bold">{{ total_usuarios }}</div>
+          <div class="small text-muted mt-2">
+            Empleados {{ total_empleados }} · Admins {{ total_admins }} · Kioskos {{ total_kioskos }}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small">Registros hoy</div>
+          <div class="display-6 fw-bold">{{ registros_hoy }}</div>
+          <div class="small text-muted mt-2">
+            Entradas {{ entradas_hoy }} · Salidas {{ salidas_hoy }}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small">Justificaciones hoy</div>
+          <div class="display-6 fw-bold">{{ justificaciones_hoy }}</div>
+          <div class="small text-muted mt-2">Horas extra justificadas.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-md-6 col-xl-3">
+      <div class="card shadow-sm h-100">
+        <div class="card-body">
+          <div class="text-muted small">Acciones rápidas</div>
+          <div class="d-grid gap-2 mt-3">
+            <a class="btn btn-outline-primary" href="{{ url_for('admin_registros') }}">Ver registros</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin_usuarios_fichas') }}">Gestionar usuarios</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin_horarios') }}">Horarios</a>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin_kioskos') }}">Kioskos</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
