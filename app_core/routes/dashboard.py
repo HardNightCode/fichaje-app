@@ -9,6 +9,7 @@ from ..logic import (
     agrupar_registros_en_intervalos,
     calcular_descanso_intervalo_para_usuario,
     calcular_extra_y_defecto_intervalo,
+    calcular_jornada_teorica,
     formatear_timedelta,
     obtener_horario_aplicable,
     obtener_ubicaciones_usuario,
@@ -154,6 +155,116 @@ def register_dashboard_routes(app):
             extra_hoy, defecto_hoy = _calcular_extra_defecto_periodo(hoy, hoy)
             extra_semana, defecto_semana = _calcular_extra_defecto_periodo(lunes, domingo)
 
+            usuarios_admin = User.query.filter(User.role != "kiosko").order_by(User.username).all()
+            selected_user_id = request.args.get("user_id", "").strip()
+            admin_user = None
+            if selected_user_id:
+                try:
+                    selected_user_id_int = int(selected_user_id)
+                    admin_user = next((u for u in usuarios_admin if u.id == selected_user_id_int), None)
+                except ValueError:
+                    admin_user = None
+            if admin_user is None and usuarios_admin:
+                admin_user = usuarios_admin[0]
+
+            admin_intervalos_semana = []
+            admin_resumen_semana = None
+            admin_semana_label = None
+            admin_week_page_int = 1
+            admin_total_pages = 1
+            admin_semanas_meta = []
+
+            if admin_user:
+                registros_usuario = (
+                    Registro.query.filter_by(usuario_id=admin_user.id)
+                    .order_by(Registro.momento.asc())
+                    .all()
+                )
+                intervalos_usuario = agrupar_registros_en_intervalos(registros_usuario)
+
+                for it in intervalos_usuario:
+                    if it.usuario and it.entrada_momento:
+                        ahora_ref = datetime.utcnow()
+                        descanso_td, en_curso, inicio = calcular_descanso_intervalo_para_usuario(
+                            it.usuario.id,
+                            it.entrada_momento,
+                            it.salida_momento,
+                            ahora=ahora_ref,
+                        )
+
+                        base_segundos = 0
+                        if en_curso and inicio:
+                            abierto = max(ahora_ref - inicio, timedelta(0))
+                            base_td = descanso_td - abierto
+                            if base_td.total_seconds() < 0:
+                                base_td = timedelta(0)
+                            base_segundos = int(base_td.total_seconds())
+                    else:
+                        descanso_td, en_curso, inicio = timedelta(0), False, None
+                        base_segundos = 0
+
+                    it.descanso_td = descanso_td
+                    it.descanso_en_curso = en_curso
+                    it.descanso_inicio_iso = inicio.isoformat() if inicio else ""
+                    it.descanso_base_segundos = base_segundos
+
+                    if en_curso:
+                        it.descanso_label = "Descansando"
+                    elif descanso_td.total_seconds() > 0:
+                        it.descanso_label = formatear_timedelta(descanso_td)
+                    else:
+                        it.descanso_label = "Sin descanso"
+
+                week_map = OrderedDict()
+                for it in intervalos_usuario:
+                    ref = it.entrada_momento or it.salida_momento
+                    if not ref:
+                        continue
+                    iso = ref.isocalendar()
+                    key = (iso.year, iso.week)
+                    if key not in week_map:
+                        week_map[key] = []
+                    week_map[key].append(it)
+
+                week_keys = sorted(week_map.keys(), reverse=True)
+                week_page = request.args.get("week_page", "1")
+                try:
+                    admin_week_page_int = max(1, int(week_page))
+                except ValueError:
+                    admin_week_page_int = 1
+
+                admin_total_pages = len(week_keys) if week_keys else 1
+                if admin_week_page_int > admin_total_pages:
+                    admin_week_page_int = admin_total_pages
+
+                selected_key = week_keys[admin_week_page_int - 1] if week_keys else None
+                admin_intervalos_semana = week_map.get(selected_key, []) if selected_key else []
+
+                total_trabajo_semana = timedelta(0)
+                for it in admin_intervalos_semana:
+                    trabajo_real = getattr(it, "trabajo_real", timedelta(0)) or timedelta(0)
+                    if trabajo_real.total_seconds() > 0:
+                        total_trabajo_semana += trabajo_real
+
+                admin_resumen_semana = (
+                    formatear_timedelta(total_trabajo_semana)
+                    if total_trabajo_semana.total_seconds() > 0
+                    else None
+                )
+
+                for idx, key in enumerate(week_keys, start=1):
+                    year, wk = key
+                    lunes_sem = date.fromisocalendar(year, wk, 1)
+                    domingo_sem = lunes_sem + timedelta(days=6)
+                    label = f"Semana {wk} ({lunes_sem.strftime('%d/%m')} - {domingo_sem.strftime('%d/%m')})"
+                    admin_semanas_meta.append({"page": idx, "label": label})
+
+                if selected_key:
+                    year, wk = selected_key
+                    lunes_sem = date.fromisocalendar(year, wk, 1)
+                    domingo_sem = lunes_sem + timedelta(days=6)
+                    admin_semana_label = f"Semana {wk} ({lunes_sem.strftime('%d/%m')} - {domingo_sem.strftime('%d/%m')})"
+
             return render_template(
                 "admin_dashboard.html",
                 total_usuarios=total_usuarios,
@@ -168,6 +279,14 @@ def register_dashboard_routes(app):
                 defecto_hoy=formatear_timedelta(defecto_hoy),
                 extra_semana=formatear_timedelta(extra_semana),
                 defecto_semana=formatear_timedelta(defecto_semana),
+                usuarios_admin=usuarios_admin,
+                admin_user=admin_user,
+                admin_intervalos_semana=admin_intervalos_semana,
+                admin_resumen_semana=admin_resumen_semana,
+                admin_semana_label=admin_semana_label,
+                admin_week_page=admin_week_page_int,
+                admin_total_pages=admin_total_pages,
+                admin_semanas_meta=admin_semanas_meta,
             )
 
         registros_usuario = (
