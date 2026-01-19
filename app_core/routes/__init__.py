@@ -7,7 +7,6 @@ from .company import register_company_routes
 from .auth_routes import register_auth_routes
 from .dashboard import register_dashboard_routes
 from .fichajes import register_fichaje_routes
-from .health import register_health_route
 from .kiosko import register_kiosko_routes
 
 
@@ -21,5 +20,4 @@ def register_routes(app):
     register_admin_kiosk_routes(app)
     register_admin_registro_routes(app)
     register_kiosko_routes(app)
-    register_health_route(app)
     register_company_routes(app)
