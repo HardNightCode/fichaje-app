@@ -1,3 +1,5 @@
+from datetime import datetime
+import os
 from flask import flash, redirect, render_template, request, url_for, current_app, jsonify
 from flask_login import (
     current_user,
@@ -17,6 +19,13 @@ from secrets import token_urlsafe
 def _get_qr_serializer():
     secret = current_app.config.get("SECRET_KEY", "cambia-esta-clave-por-una-mas-segura")
     return URLSafeTimedSerializer(secret_key=secret, salt="qr-login")
+
+
+def _get_portal_sso_serializer():
+    secret = os.getenv("PORTAL_SSO_SECRET") or current_app.config.get(
+        "SECRET_KEY", "cambia-esta-clave-por-una-mas-segura"
+    )
+    return URLSafeTimedSerializer(secret_key=secret, salt="portal-sso")
 
 
 def generar_token_qr(username: str):
@@ -148,6 +157,44 @@ def register_auth_routes(app):
 
         if user.role == "kiosko":
             return redirect(url_for("kiosko_panel"))
+        return redirect(url_for("index"))
+
+    @app.route("/portal/sso")
+    def portal_sso():
+        """
+        Login SSO desde el portal.
+        Uso: /portal/sso?token=...
+        Token firmado y con expiracion corta.
+        """
+        token = request.args.get("token", "").strip()
+        if not token:
+            flash("Token no proporcionado.", "error")
+            return redirect(url_for("login"))
+
+        s = _get_portal_sso_serializer()
+        try:
+            data = s.loads(token, max_age=120)
+        except SignatureExpired:
+            flash("Token caducado.", "error")
+            return redirect(url_for("login"))
+        except BadSignature:
+            flash("Token invalido.", "error")
+            return redirect(url_for("login"))
+
+        email = data.get("email")
+        domain = data.get("domain")
+        host = request.host.split(":")[0]
+        if domain and domain != host:
+            flash("Token no valido para este dominio.", "error")
+            return redirect(url_for("login"))
+
+        user = User.query.filter_by(username=email).first() if email else None
+        if not user or user.role != "admin":
+            flash("Usuario no autorizado.", "error")
+            return redirect(url_for("login"))
+
+        login_user(user)
+        flash("Sesion iniciada desde el portal.", "success")
         return redirect(url_for("index"))
 
     @app.route("/register", methods=["GET", "POST"])
