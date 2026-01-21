@@ -8,6 +8,8 @@ from flask_login import (
     logout_user,
 )
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from email.message import EmailMessage
+import smtplib
 
 from ..auth import admin_required
 from ..extensions import db
@@ -45,6 +47,46 @@ def generar_token_qr(username: str):
 def generar_token_recuperacion(user: User):
     s = _get_password_reset_serializer()
     return s.dumps({"user_id": user.id, "email": user.email})
+
+
+def _enviar_correo_recuperacion(user: User, reset_url: str):
+    smtp_host = os.getenv("SMTP_HOST", "")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    smtp_from = os.getenv("SMTP_FROM", "no-reply@nexusspsolutions.com")
+    smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() != "false"
+
+    if not smtp_host or not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP no configurado.")
+
+    msg = EmailMessage()
+    msg["Subject"] = "Recuperacion de contrasena"
+    msg["From"] = smtp_from
+    msg["To"] = user.email
+    msg.set_content(
+        "Hola,\n\n"
+        "Has solicitado restablecer tu contrasena. Usa este enlace para definir una nueva:\n"
+        f"{reset_url}\n\n"
+        "Si no solicitaste este cambio, ignora este mensaje.\n"
+    )
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+        server.ehlo()
+        if smtp_use_tls:
+            server.starttls()
+            server.ehlo()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+
+
+def _censurar_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    visible = local[:1]
+    hidden = "*" * max(0, len(local) - 1)
+    return f"{visible}{hidden}@{domain}"
 def crear_qr_token_db(user: User, domain: str, expires_at=None):
     tok = token_urlsafe(32)
     qr = QRToken(user_id=user.id, token=tok, domain=domain, expires_at=expires_at)
@@ -117,6 +159,72 @@ def register_auth_routes(app):
             return redirect(url_for("index"))
 
         return render_template("cambiar_password_obligatorio.html")
+
+    @app.route("/forgot_password", methods=["GET", "POST"])
+    def forgot_password():
+        stage = request.form.get("stage", "lookup")
+        username = (request.form.get("username") or "").strip()
+
+        if request.method == "POST":
+            if stage == "lookup":
+                if not username:
+                    flash("Debes indicar tu usuario.", "error")
+                    return redirect(url_for("forgot_password"))
+
+                user = User.query.filter_by(username=username).first()
+                if not user or user.role in ("kiosko", "kiosko_admin"):
+                    flash("Lo sentimos, tu cuenta no es válida para recuperación por correo. Contacta con el administrador.", "error")
+                    return render_template("forgot_password.html")
+
+                if not user.email:
+                    flash("Lo sentimos, tu cuenta no tiene correo asociado. Contacta con el administrador.", "error")
+                    return render_template("forgot_password.html")
+
+                masked_email = _censurar_email(user.email)
+                return render_template(
+                    "forgot_password.html",
+                    stage="confirm",
+                    username=user.username,
+                    masked_email=masked_email,
+                )
+
+            if stage == "confirm":
+                email = (request.form.get("email") or "").strip().lower()
+                if not username or not email:
+                    flash("Debes completar los datos.", "error")
+                    return redirect(url_for("forgot_password"))
+
+                user = User.query.filter_by(username=username).first()
+                if not user or not user.email:
+                    flash("Lo sentimos, tu cuenta no tiene correo asociado. Contacta con el administrador.", "error")
+                    return render_template("forgot_password.html")
+
+                if user.email != email:
+                    flash("El correo no coincide con el asociado al usuario.", "error")
+                    return render_template(
+                        "forgot_password.html",
+                        stage="confirm",
+                        username=username,
+                        masked_email=_censurar_email(user.email),
+                    )
+
+                token = generar_token_recuperacion(user)
+                reset_url = url_for("reset_password", token=token, _external=True)
+                try:
+                    _enviar_correo_recuperacion(user, reset_url)
+                except Exception:
+                    flash("No se pudo enviar el correo de recuperación.", "error")
+                    return render_template(
+                        "forgot_password.html",
+                        stage="confirm",
+                        username=username,
+                        masked_email=_censurar_email(user.email),
+                    )
+
+                flash("Correo de recuperación enviado. Revisa tu bandeja de entrada.", "success")
+                return redirect(url_for("login"))
+
+        return render_template("forgot_password.html")
 
     @app.route("/reset_password/<token>", methods=["GET", "POST"])
     def reset_password(token):
