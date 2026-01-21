@@ -1,6 +1,9 @@
 from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from sqlalchemy import text
+from email.message import EmailMessage
+import os
+import smtplib
 
 from ..auth import admin_required
 from ..extensions import db
@@ -19,8 +22,39 @@ from ..models import (
     User,
     UserSchedule,
 )
-from ..routes.auth_routes import crear_qr_token_db
+from ..routes.auth_routes import crear_qr_token_db, generar_token_recuperacion
 from datetime import datetime
+
+
+def _enviar_correo_recuperacion(user: User, reset_url: str):
+    smtp_host = os.getenv("SMTP_HOST", "")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    smtp_from = os.getenv("SMTP_FROM", "no-reply@nexusspsolutions.com")
+    smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() != "false"
+
+    if not smtp_host or not smtp_user or not smtp_pass:
+        raise RuntimeError("SMTP no configurado.")
+
+    msg = EmailMessage()
+    msg["Subject"] = "Recuperacion de contrasena"
+    msg["From"] = smtp_from
+    msg["To"] = user.email
+    msg.set_content(
+        "Hola,\n\n"
+        "Has solicitado restablecer tu contrasena. Usa este enlace para definir una nueva:\n"
+        f"{reset_url}\n\n"
+        "Si no solicitaste este cambio, ignora este mensaje.\n"
+    )
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+        server.ehlo()
+        if smtp_use_tls:
+            server.starttls()
+            server.ehlo()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
 
 
 def register_admin_user_routes(app):
@@ -168,6 +202,28 @@ def register_admin_user_routes(app):
             return redirect(url_for("admin_usuarios_fichas"))
 
         return render_template("admin_usuarios_fichas.html", usuarios=usuarios)
+
+    @app.route("/admin/usuarios/<int:user_id>/send_reset_email", methods=["POST"])
+    @admin_required
+    def admin_send_reset_email(user_id):
+        user = User.query.get_or_404(user_id)
+        if not user.email:
+            flash("El usuario no tiene correo asociado.", "error")
+            return redirect(url_for("admin_usuarios_fichas"))
+        if user.role in ("kiosko", "kiosko_admin"):
+            flash("Las cuentas de kiosko no pueden recibir recuperación por correo.", "error")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        token = generar_token_recuperacion(user)
+        reset_url = url_for("reset_password", token=token, _external=True)
+        try:
+            _enviar_correo_recuperacion(user, reset_url)
+        except Exception:
+            flash("No se pudo enviar el correo de recuperación.", "error")
+            return redirect(url_for("admin_usuarios_fichas"))
+
+        flash("Correo de recuperación enviado.", "success")
+        return redirect(url_for("admin_usuarios_fichas"))
 
     @app.route("/admin/usuarios/<int:user_id>/reset_password", methods=["POST"])
     @admin_required

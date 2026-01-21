@@ -58,6 +58,22 @@
                     data-bs-target="#resetPasswordModal_{{ u.id }}">
               Reset contraseña
             </button>
+            {% if u.email and u.role not in ['kiosko', 'kiosko_admin'] %}
+              <form method="post"
+                    action="{{ url_for('admin_send_reset_email', user_id=u.id) }}"
+                    class="d-inline">
+                <button type="submit" class="btn btn-outline-primary">
+                  Enviar recuperación
+                </button>
+              </form>
+            {% else %}
+              <button type="button"
+                      class="btn btn-outline-primary"
+                      disabled
+                      title="El usuario debe tener correo y no ser kiosko">
+                Enviar recuperación
+              </button>
+            {% endif %}
 
             <!-- Eliminar usuario -->
             {% if u.username == 'admin' %}

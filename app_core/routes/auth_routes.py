@@ -28,6 +28,11 @@ def _get_portal_sso_serializer():
     return URLSafeTimedSerializer(secret_key=secret, salt="portal-sso")
 
 
+def _get_password_reset_serializer():
+    secret = current_app.config.get("SECRET_KEY", "cambia-esta-clave-por-una-mas-segura")
+    return URLSafeTimedSerializer(secret_key=secret, salt="password-reset")
+
+
 def generar_token_qr(username: str):
     """
     Helper para generar token de login por QR (expira a los 10 minutos).
@@ -35,6 +40,11 @@ def generar_token_qr(username: str):
     """
     s = _get_qr_serializer()
     return s.dumps({"u": username})
+
+
+def generar_token_recuperacion(user: User):
+    s = _get_password_reset_serializer()
+    return s.dumps({"user_id": user.id, "email": user.email})
 def crear_qr_token_db(user: User, domain: str, expires_at=None):
     tok = token_urlsafe(32)
     qr = QRToken(user_id=user.id, token=tok, domain=domain, expires_at=expires_at)
@@ -107,6 +117,46 @@ def register_auth_routes(app):
             return redirect(url_for("index"))
 
         return render_template("cambiar_password_obligatorio.html")
+
+    @app.route("/reset_password/<token>", methods=["GET", "POST"])
+    def reset_password(token):
+        s = _get_password_reset_serializer()
+        try:
+            data = s.loads(token, max_age=3600)
+        except SignatureExpired:
+            flash("El enlace de recuperación ha caducado.", "error")
+            return redirect(url_for("login"))
+        except BadSignature:
+            flash("El enlace de recuperación no es válido.", "error")
+            return redirect(url_for("login"))
+
+        user_id = data.get("user_id")
+        email = data.get("email")
+        user = User.query.get(user_id) if user_id else None
+        if not user or not user.email or user.email != email:
+            flash("El enlace de recuperación no es válido.", "error")
+            return redirect(url_for("login"))
+
+        if request.method == "POST":
+            new_password = request.form.get("new_password", "").strip()
+            confirm_password = request.form.get("confirm_password", "").strip()
+
+            if not new_password:
+                flash("La nueva contraseña no puede estar vacía.", "error")
+                return redirect(url_for("reset_password", token=token))
+
+            if new_password != confirm_password:
+                flash("Las contraseñas no coinciden.", "error")
+                return redirect(url_for("reset_password", token=token))
+
+            user.set_password(new_password)
+            user.must_change_password = False
+            db.session.commit()
+
+            flash("Contraseña actualizada correctamente.", "success")
+            return redirect(url_for("login"))
+
+        return render_template("reset_password.html")
 
     @app.route("/logout")
     @login_required
