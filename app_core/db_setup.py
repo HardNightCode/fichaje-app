@@ -5,6 +5,34 @@ from .models import User, Location, CompanyInfo, QRToken
 
 
 def crear_tablas():
+    engine = db.engine
+    lock_acquired = True
+
+    if engine.dialect.name == "postgresql":
+        lock_acquired = False
+        try:
+            with engine.begin() as conn:
+                lock_acquired = conn.execute(
+                    text("SELECT pg_try_advisory_lock(19770628)")
+                ).scalar()
+        except Exception:
+            lock_acquired = True
+
+    if not lock_acquired:
+        return
+
+    try:
+        _crear_tablas_base()
+    finally:
+        if engine.dialect.name == "postgresql" and lock_acquired:
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text("SELECT pg_advisory_unlock(19770628)"))
+            except Exception:
+                pass
+
+
+def _crear_tablas_base():
     db.create_all()
     _asegurar_columnas_descanso()
 
@@ -88,3 +116,4 @@ def _asegurar_columnas_descanso():
     _add_col("schedule", "break_paid", col_type)
     _add_col("schedule_day", "break_optional", col_type)
     _add_col("schedule_day", "break_paid", col_type)
+    _add_col("user", "email", "VARCHAR(120)")

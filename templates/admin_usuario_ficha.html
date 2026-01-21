@@ -56,6 +56,19 @@
       <div class="card-body">
         <form action="{{ url_for('admin_usuario_ficha', user_id=usuario.id) }}" method="post" class="row g-3">
           <div class="col-12">
+            <label class="form-label">Correo electrónico</label>
+            <input type="email"
+                   name="email"
+                   class="form-control"
+                   value="{{ usuario.email or '' }}"
+                   {% if usuario.role in ['kiosko', 'kiosko_admin'] %}disabled{% endif %}>
+            {% if usuario.role in ['kiosko', 'kiosko_admin'] %}
+              <small class="text-muted">Las cuentas de kiosko no pueden asociar correo.</small>
+            {% else %}
+              <small class="text-muted">Opcional. Puedes vincularlo más adelante.</small>
+            {% endif %}
+          </div>
+          <div class="col-12">
             <label class="form-label">Horarios asignados</label>
             {% if horarios %}
               <div class="border rounded p-2" style="max-height: 250px; overflow-y: auto;">

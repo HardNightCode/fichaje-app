@@ -202,6 +202,12 @@ def register_admin_user_routes(app):
         settings = get_or_create_schedule_settings(user)
 
         if request.method == "POST":
+            email_value = (request.form.get("email") or "").strip().lower()
+            if user.role in ("kiosko", "kiosko_admin") and email_value:
+                flash("Las cuentas de kiosko no pueden tener correo asociado.", "error")
+                return redirect(url_for("admin_usuario_ficha", user_id=user.id))
+
+            user.email = email_value or None
             schedule_ids = request.form.getlist("schedule_ids")
 
             user.schedules.clear()
