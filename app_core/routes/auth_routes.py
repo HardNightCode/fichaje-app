@@ -204,6 +204,7 @@ def register_auth_routes(app):
             username = request.form.get("username")
             password = request.form.get("password")
             role = request.form.get("role", "empleado")
+            email = (request.form.get("email") or "").strip().lower()
 
             must_change = bool(request.form.get("must_change_password"))
 
@@ -215,7 +216,20 @@ def register_auth_routes(app):
                 flash("Ese nombre de usuario ya existe", "error")
                 return redirect(url_for("register"))
 
+            if email and "@" not in email:
+                flash("El correo no es válido.", "error")
+                return redirect(url_for("register"))
+
+            if role in ("kiosko", "kiosko_admin") and email:
+                flash("Las cuentas de kiosko no pueden tener correo asociado.", "error")
+                return redirect(url_for("register"))
+
+            if email and User.query.filter_by(email=email).first():
+                flash("Ese correo ya está asociado a otro usuario.", "error")
+                return redirect(url_for("register"))
+
             nuevo_usuario = User(username=username, role=role)
+            nuevo_usuario.email = email or None
             nuevo_usuario.set_password(password)
             nuevo_usuario.must_change_password = must_change
 
