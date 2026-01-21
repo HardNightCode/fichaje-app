@@ -101,10 +101,11 @@ def _asegurar_columnas_descanso():
         if col_name in cols:
             return
         try:
+            table_sql = f"\"{table}\"" if table.lower() == "user" else table
             if dialect == "postgresql":
-                stmt = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col_name} {col_type_sql}"
+                stmt = f"ALTER TABLE {table_sql} ADD COLUMN IF NOT EXISTS {col_name} {col_type_sql}"
             else:
-                stmt = f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type_sql}"
+                stmt = f"ALTER TABLE {table_sql} ADD COLUMN {col_name} {col_type_sql}"
             with engine.begin() as conn:
                 conn.execute(text(stmt))
         except Exception:
