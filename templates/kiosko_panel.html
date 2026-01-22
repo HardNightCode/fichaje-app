@@ -77,6 +77,7 @@
           <div class="alert alert-warning d-none" id="kioskNoLocation">
             No tienes ninguna ubicación asignada. Contacta con el administrador.
           </div>
+          <div class="alert alert-warning d-none" id="kioskGeoAlert"></div>
 
           <form method="post" action="{{ url_for('fichar') }}" id="kioskActionForm">
             <input type="hidden" name="usuario_id" id="kioskUserId">
@@ -114,29 +115,61 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    if (!navigator.geolocation) {
-        console.warn("Geolocalización no soportada en este navegador.");
-    } else {
-        function setGeoCoords(lat, lon) {
-            const latInputs = document.querySelectorAll('input[name="lat"]');
-            const lonInputs = document.querySelectorAll('input[name="lon"]');
-            latInputs.forEach(function (inp) { inp.value = lat; });
-            lonInputs.forEach(function (inp) { inp.value = lon; });
-        }
+    function isSecureOrigin() {
+        const host = window.location.hostname;
+        return window.location.protocol === "https:" || host === "localhost" || host === "127.0.0.1";
+    }
 
+    function setGeoCoords(lat, lon) {
+        const latInputs = document.querySelectorAll('input[name="lat"]');
+        const lonInputs = document.querySelectorAll('input[name="lon"]');
+        latInputs.forEach(function (inp) { inp.value = lat; });
+        lonInputs.forEach(function (inp) { inp.value = lon; });
+    }
+
+    function requestLocation(onSuccess, onFailure) {
+        const highAccuracy = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
+        const lowAccuracy = { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 };
         navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            function (err) {
+                if (err && err.code === err.PERMISSION_DENIED) {
+                    onFailure(err);
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(onSuccess, onFailure, lowAccuracy);
+            },
+            highAccuracy
+        );
+    }
+
+    if (!navigator.geolocation) {
+        const geoAlert = document.getElementById('kioskGeoAlert');
+        geoAlert.textContent = "La geolocalización no está disponible en este navegador.";
+        geoAlert.classList.remove('d-none');
+    } else if (!isSecureOrigin()) {
+        const geoAlert = document.getElementById('kioskGeoAlert');
+        geoAlert.textContent = "La geolocalización requiere HTTPS. Accede al sitio con conexión segura.";
+        geoAlert.classList.remove('d-none');
+    } else {
+        requestLocation(
             function (pos) {
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
-                setGeoCoords(lat, lon);
+                setGeoCoords(pos.coords.latitude, pos.coords.longitude);
             },
             function (err) {
-                console.warn("No se pudo obtener la geolocalización:", err);
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 30000
+                const geoAlert = document.getElementById('kioskGeoAlert');
+                let msg = "No se pudo obtener la ubicación. Activa los permisos de geolocalización.";
+                if (err) {
+                    if (err.code === err.PERMISSION_DENIED) {
+                        msg = "Permiso de ubicación denegado. Actívalo en los ajustes del navegador.";
+                    } else if (err.code === err.POSITION_UNAVAILABLE) {
+                        msg = "No se pudo determinar la ubicación. Comprueba la señal GPS.";
+                    } else if (err.code === err.TIMEOUT) {
+                        msg = "Tiempo de espera agotado al obtener la ubicación. Inténtalo de nuevo.";
+                    }
+                }
+                geoAlert.textContent = msg;
+                geoAlert.classList.remove('d-none');
             }
         );
     }
@@ -150,6 +183,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const pinSubmit = document.getElementById('kioskPinSubmit');
     const modalTitle = document.getElementById('kioskModalTitle');
     const noLocationAlert = document.getElementById('kioskNoLocation');
+    const geoAlert = document.getElementById('kioskGeoAlert');
 
     const actionForm = document.getElementById('kioskActionForm');
     const userIdInput = document.getElementById('kioskUserId');
@@ -170,6 +204,8 @@ document.addEventListener("DOMContentLoaded", function () {
       pinStep.classList.remove('d-none');
       actionStep.classList.add('d-none');
       noLocationAlert.classList.add('d-none');
+      geoAlert.classList.add('d-none');
+      geoAlert.textContent = '';
     }
 
     function applyUserRules(data) {

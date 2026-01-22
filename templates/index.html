@@ -405,21 +405,56 @@
     enviarFichaje(accion);
   }
 
+  function isSecureOrigin() {
+    const host = window.location.hostname;
+    return window.location.protocol === "https:" || host === "localhost" || host === "127.0.0.1";
+  }
+
+  function requestLocation(onSuccess, onFailure) {
+    const highAccuracy = { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 };
+    const lowAccuracy = { enableHighAccuracy: false, timeout: 20000, maximumAge: 300000 };
+
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
+      function (err) {
+        if (err && err.code === err.PERMISSION_DENIED) {
+          onFailure(err);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(onSuccess, onFailure, lowAccuracy);
+      },
+      highAccuracy
+    );
+  }
+
   function enviarFichaje(accion) {
     if (!navigator.geolocation) {
       alert("La geolocalización no está disponible en este navegador.");
       return;
     }
-    navigator.geolocation.getCurrentPosition(
+    if (!isSecureOrigin()) {
+      alert("La geolocalización requiere HTTPS. Accede al sitio con conexión segura.");
+      return;
+    }
+    requestLocation(
       function (position) {
         document.getElementById("lat").value = position.coords.latitude;
         document.getElementById("lon").value = position.coords.longitude;
         document.getElementById("form-fichar").submit();
       },
-      function () {
-        alert("No se pudo obtener la ubicación. Activa los permisos de geolocalización.");
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      function (err) {
+        let msg = "No se pudo obtener la ubicación. Activa los permisos de geolocalización.";
+        if (err) {
+          if (err.code === err.PERMISSION_DENIED) {
+            msg = "Permiso de ubicación denegado. Actívalo en los ajustes del navegador.";
+          } else if (err.code === err.POSITION_UNAVAILABLE) {
+            msg = "No se pudo determinar la ubicación. Comprueba la señal GPS.";
+          } else if (err.code === err.TIMEOUT) {
+            msg = "Tiempo de espera agotado al obtener la ubicación. Inténtalo de nuevo.";
+          }
+        }
+        alert(msg);
+      }
     );
   }
 
